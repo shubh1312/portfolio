@@ -396,6 +396,13 @@ def parse_indmoney(file, filename=None):
                 break
     
     mapped_df = pd.DataFrame(result_cols)
+    if 'ticker' in mapped_df.columns:
+        # Stop processing rows if "disclaimer" is found in the ticker column
+        disclaimer_mask = mapped_df['ticker'].astype(str).str.contains('disclaimer', case=False, na=False)
+        if disclaimer_mask.any():
+            stop_idx = mapped_df[disclaimer_mask].index[0]
+            mapped_df = mapped_df.iloc[:stop_idx]
+            
     if 'ticker' in mapped_df.columns and 'quantity' in mapped_df.columns:
         if 'current_price' not in mapped_df.columns and 'total_value' in mapped_df.columns:
             mapped_df['current_price'] = mapped_df['total_value'] / mapped_df['quantity']
@@ -565,12 +572,13 @@ def dashboard(active_ids):
     total_gain = total_portfolio_value - total_cost
     total_gain_pct = (total_gain / total_cost) * 100 if total_cost > 0 else 0
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     col1.metric("Total Invested", f"{sym}{total_cost:,.2f}")
     col2.metric("Total Value", f"{sym}{total_portfolio_value:,.2f}")
     col3.metric("Total Gain/Loss", f"{sym}{total_gain:,.2f}", f"{total_gain_pct:.2f}%")
-    col4.metric("Active Accounts", f"{len(df['account_id'].unique())}")
+    col4.metric("Tickers", f"{len(df['ticker'].unique())}")
+    col5.metric("Active Accounts", f"{len(df['account_id'].unique())}")
 
     st.divider()
 
