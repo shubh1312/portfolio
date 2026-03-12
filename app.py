@@ -321,6 +321,13 @@ def update_account_name(acc_id, new_name):
     conn.commit()
     conn.close()
 
+def delete_account(acc_id):
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute('DELETE FROM holdings WHERE account_id = ?', (acc_id,))
+    conn.execute('DELETE FROM accounts WHERE id = ?', (acc_id,))
+    conn.commit()
+    conn.close()
+
 def save_holdings(df, account_id):
     conn = sqlite3.connect(DB_NAME)
     # Clear old holdings for this account to avoid ghost entries
@@ -520,10 +527,14 @@ def sidebar():
         active_ids = []
         if not accounts_df.empty:
             for _, acc in accounts_df.iterrows():
-                col_check, col_name = st.columns([0.2, 0.8])
-                is_checked = col_check.checkbox("", value=bool(acc['is_active']), key=f"acc_chk_{acc['id']}")
+                col_check, col_name, col_del = st.columns([0.15, 0.7, 0.15])
+                is_checked = col_check.checkbox("", value=bool(acc['is_active']), key=f"acc_chk_{acc['id']}", label_visibility="collapsed")
                 new_name = col_name.text_input("", value=acc['name'], key=f"acc_name_{acc['id']}", label_visibility="collapsed")
                 
+                if col_del.button("🗑️", key=f"del_{acc['id']}"):
+                    delete_account(acc['id'])
+                    st.rerun()
+
                 if new_name != acc['name']:
                     update_account_name(acc['id'], new_name)
                     st.rerun()
