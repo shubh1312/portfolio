@@ -1,0 +1,17 @@
+# Streamlit
+venv/
+.streamlit/
+static/
+
+# Database
+portfolio.db
+
+# OS files
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Local Data
+files/
