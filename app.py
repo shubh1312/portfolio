@@ -299,19 +299,27 @@ def update_prices_in_db(finnhub_key, av_key):
 # --- End Live Price API Logic ---
 
 # --- HELPERS ---
-def get_or_create_account(platform, broker_id, name):
+def get_or_create_account(platform, broker_id, default_name):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('SELECT id FROM accounts WHERE platform = ? AND (broker_id = ? OR name = ?)', (platform, broker_id, name))
+    # Check by broker_id first
+    c.execute('SELECT id, name FROM accounts WHERE platform = ? AND broker_id = ?', (platform, broker_id))
     row = c.fetchone()
     if row:
         acc_id = row[0]
     else:
-        c.execute('INSERT INTO accounts (platform, name, broker_id) VALUES (?, ?, ?)', (platform, name, broker_id))
+        # Create new
+        c.execute('INSERT INTO accounts (platform, name, broker_id) VALUES (?, ?, ?)', (platform, default_name, broker_id))
         acc_id = c.lastrowid
     conn.commit()
     conn.close()
     return acc_id
+
+def update_account_name(acc_id, new_name):
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute('UPDATE accounts SET name = ? WHERE id = ?', (new_name, acc_id))
+    conn.commit()
+    conn.close()
 
 def save_holdings(df, account_id):
     conn = sqlite3.connect(DB_NAME)
@@ -418,10 +426,38 @@ def parse_indmoney(file, filename=None):
     return pd.DataFrame(), broker_id
 
 def parse_vested(file, filename=None):
-    # Vested XLSX
-    df = pd.read_excel(file)
+    # Vested XLSX with multiple sheets: ['User Details', 'Holdings']
     broker_id = filename if filename else file.name
+    try:
+        xls = pd.read_excel(file, sheet_name=None)
+    except Exception as e:
+        st.error(f"Vested Excel parsing failed: {e}")
+        return pd.DataFrame(), broker_id
 
+    # 1. Precise Extraction of Broker ID (Govt Id/PAN) from "User Details"
+    if 'User Details' in xls:
+        user_df = xls['User Details']
+        if 'Govt Id' in user_df.columns and not user_df.empty:
+            broker_id = str(user_df.iloc[0]['Govt Id'])
+        elif 'User' in user_df.columns and not user_df.empty:
+            # Fallback to User name if Govt Id missing
+            broker_id = str(user_df.iloc[0]['User'])
+
+    # 2. Extract Holdings
+    if 'Holdings' in xls:
+        df = xls['Holdings']
+    else:
+        # Fallback to the first non-user-details sheet found
+        df = pd.DataFrame()
+        for name, sheet in xls.items():
+            if name != 'User Details':
+                df = sheet
+                break
+
+    if df.empty:
+        return pd.DataFrame(), broker_id
+
+    # Precise Vested Column Mapping
     col_map = {
         'ticker': ['Ticker', 'Symbol'],
         'quantity': ['Total Shares Held', 'Quantity'],
@@ -429,7 +465,7 @@ def parse_vested(file, filename=None):
         'current_price': ['Current Price (USD)', 'CMP'],
         'total_invested': ['Total Amount Invested (USD)', 'Invested Amount']
     }
-    
+
     result_cols = {}
     for target, suggestions in col_map.items():
         for suggestion in suggestions:
@@ -437,16 +473,22 @@ def parse_vested(file, filename=None):
             if match:
                 result_cols[target] = df[match]
                 break
-                
+            
     mapped_df = pd.DataFrame(result_cols)
     if 'ticker' in mapped_df.columns:
-        # Fallback for total_invested if column missing
+        # Stop processing rows if "disclaimer" is found (mirroring INDmoney logic)
+        disclaimer_mask = mapped_df['ticker'].astype(str).str.contains('disclaimer', case=False, na=False)
+        if disclaimer_mask.any():
+            stop_idx = mapped_df[disclaimer_mask].index[0]
+            mapped_df = mapped_df.iloc[:stop_idx]
+
+        # Calculate total_invested if missing
         if 'total_invested' not in mapped_df.columns and 'quantity' in mapped_df.columns and 'avg_price' in mapped_df.columns:
              mapped_df['total_invested'] = mapped_df['quantity'] * mapped_df['avg_price']
-             
+        
         final_df = mapped_df[['ticker', 'quantity', 'avg_price', 'current_price', 'total_invested']].copy()
         return final_df.dropna(subset=['ticker']), broker_id
-        
+
     return pd.DataFrame(), broker_id
 
 # --- UI COMPONENTS ---
@@ -478,7 +520,14 @@ def sidebar():
         active_ids = []
         if not accounts_df.empty:
             for _, acc in accounts_df.iterrows():
-                is_checked = st.checkbox(f"{acc['platform']} - {acc['name']}", value=bool(acc['is_active']), key=f"acc_{acc['id']}")
+                col_check, col_name = st.columns([0.2, 0.8])
+                is_checked = col_check.checkbox("", value=bool(acc['is_active']), key=f"acc_chk_{acc['id']}")
+                new_name = col_name.text_input("", value=acc['name'], key=f"acc_name_{acc['id']}", label_visibility="collapsed")
+                
+                if new_name != acc['name']:
+                    update_account_name(acc['id'], new_name)
+                    st.rerun()
+                
                 if is_checked:
                     active_ids.append(acc['id'])
                 if is_checked != bool(acc['is_active']):
@@ -486,26 +535,41 @@ def sidebar():
                     st.rerun()
 
         st.markdown("<div class='sidebar-header'>Import</div>", unsafe_allow_html=True)
-        platform = st.selectbox("Select Platform", ["INDmoney", "Vested"])
-        account_name = st.text_input("Friendly Name (optional)", "")
+        uploaded_files = st.file_uploader("Upload INDmoney/Vested files", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True)
         
-        uploaded_file = st.file_uploader(f"Upload {platform} file", type=['csv', 'xlsx', 'xls'])
-        
-        if uploaded_file and st.button("Manual Process"):
-            try:
-                if platform == "INDmoney":
-                    df, b_id = parse_indmoney(uploaded_file)
-                else:
-                    df, b_id = parse_vested(uploaded_file)
-                
-                if not df.empty:
-                    name = account_name if account_name else b_id
-                    acc_id = get_or_create_account(platform, b_id, name)
-                    save_holdings(df, acc_id)
-                    st.success(f"Updated {len(df)} holdings!")
-                    st.rerun()
-            except Exception as e:
-                st.exception(e)
+        if uploaded_files and st.button("Process Files"):
+            processed_count = 0
+            for uploaded_file in uploaded_files:
+                try:
+                    # Auto-detect platform
+                    content = uploaded_file.getvalue()
+                    uploaded_file.seek(0)
+                    
+                    # Heuristic for detection
+                    is_vested = False
+                    if uploaded_file.name.endswith('.xlsx'):
+                        xls_test = pd.ExcelFile(uploaded_file)
+                        if 'Holdings' in xls_test.sheet_names and 'User Details' in xls_test.sheet_names:
+                            is_vested = True
+                        uploaded_file.seek(0)
+
+                    if is_vested:
+                        df, b_id = parse_vested(uploaded_file, uploaded_file.name)
+                        acc_id = get_or_create_account("Vested", b_id, b_id)
+                    else:
+                        # Default to INDmoney or attempt detection
+                        df, b_id = parse_indmoney(uploaded_file, uploaded_file.name)
+                        acc_id = get_or_create_account("INDmoney", b_id, b_id)
+                    
+                    if not df.empty:
+                        save_holdings(df, acc_id)
+                        processed_count += 1
+                except Exception as e:
+                    st.error(f"Error processing {uploaded_file.name}: {e}")
+            
+            if processed_count > 0:
+                st.success(f"Successfully processed {processed_count} file(s)!")
+                st.rerun()
 
         if st.button("🚀 Fast Scan /files"):
             files_dir = "files"
