@@ -16,49 +16,118 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- STYLING ---
-st.markdown("""
-<style>
-    .main {
-        background-color: #f8f9fa;
-        color: #1e2130;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 8px;
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border: 1px solid #e9ecef;
-    }
-    div[data-testid="stMetricValue"] {
-        color: #2b3674;
-        font-weight: 700;
-        font-size: 1.5rem !important;
-    }
-    div[data-testid="stMetricLabel"] {
-        font-size: 0.8rem !important;
-    }
-    /* Ultra-Compact Table Styling */
-    [data-testid="column"] {
-        padding: 0px 2px !important;
-        margin: 0px !important;
-    }
-    div.block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-    }
-    h1, h2, h3 {
-        color: #2b3674;
-        margin-bottom: 0.2rem !important;
+# --- STYLING & THEME ---
+THEME = {
+    "bg": "#F8FAFC",
+    "sec_bg": "#FFFFFF",
+    "text": "#334155",
+    "mut": "#64748B",
+    "border": "#E2E8F0",
+    "primary": "#1E293B",
+    "accent": "#4F46E5"
+}
+
+def apply_custom_styles():
+    st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {{
+        font-family: 'Inter', sans-serif !important;
+    }}
+
+    /* Global Backgrounds */
+    [data-testid="stAppViewContainer"] {{ background-color: {THEME['bg']} !important; }}
+    [data-testid="stSidebar"] {{ background-color: {THEME['sec_bg']} !important; border-right: 1px solid {THEME['border']}; }}
+    [data-testid="stHeader"] {{ background-color: {THEME['bg']} !important; }}
+    
+    /* Headings Hierarchy - Ultra Dense */
+    h1 {{ 
+        color: {THEME['primary']} !important; 
+        font-size: 1.2rem !important; 
+        font-weight: 700 !important; 
+        letter-spacing: -0.025em !important;
+        margin-bottom: 0.1rem !important;
+        margin-top: 0px !important;
+    }}
+    h2 {{ 
+        color: {THEME['primary']} !important; 
+        font-size: 1rem !important; 
+        font-weight: 600 !important;
         margin-top: 0.5rem !important;
-        font-size: 1.2rem !important;
-    }
-    .stDataFrame {
-        border: 1px solid #e9ecef;
+        margin-bottom: 0.25rem !important;
+    }}
+    
+    /* Metrics as Compact Boxes */
+    [data-testid="stMetric"] {{
+        background-color: {THEME['sec_bg']};
+        padding: 10px !important;
         border-radius: 8px;
-    }
-</style>
-""", unsafe_allow_html=True)
+        border: 1px solid {THEME['border']};
+    }}
+    [data-testid="stMetricLabel"] p {{ color: {THEME['mut']} !important; font-size: 0.75rem; }}
+    [data-testid="stMetricValue"] > div {{ 
+        color: {THEME['primary']} !important; 
+        font-weight: 700; 
+        font-size: 1.1rem !important;
+    }}
+    
+    /* Ultra-Compact Table Layout */
+    [data-testid="column"] {{
+        padding: 0px 4px !important;
+    }}
+    
+    .row-text {{
+        font-size: 0.7rem;
+        margin: 0px !important;
+        padding: 0px !important;
+        line-height: 1.2 !important;
+        color: {THEME['text']};
+    }}
+
+    .account-count {{
+        font-size: 0.6rem;
+        color: {THEME['mut']};
+        vertical-align: super;
+        margin-left: 2px;
+    }}
+    
+    /* Buttons in Table - Minimalist */
+    [data-testid="stMain"] .stButton>button {{
+        border: none !important;
+        background-color: transparent !important;
+        color: {THEME['accent']} !important;
+        font-weight: 500 !important;
+        font-size: 0.7rem !important;
+        padding: 0px !important;
+        min-height: 16px !important;
+        line-height: 1 !important;
+    }}
+    
+    /* Minimalist Dividers */
+    hr {{ 
+        border-top: 1px solid {THEME['border']} !important; 
+        margin: 0.25rem 0 !important;
+    }}
+    
+    .stDivider {{
+         margin-top: 0.5rem !important;
+         margin-bottom: 0.5rem !important;
+    }}
+    
+    /* Sidebar Sectioning */
+    .sidebar-header {{
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: {THEME['mut']};
+        margin-top: 0.75rem;
+        margin-bottom: 0.1rem;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+apply_custom_styles()
 
 # --- DATABASE SETUP ---
 DB_NAME = "portfolio.db"
@@ -128,25 +197,12 @@ def init_db():
             UNIQUE(account_id, ticker)
         )
     ''')
-    # Settings table for API keys
-    execute_query('''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
 
 init_db()
 
-# --- SETTINGS HELPERS ---
-def get_setting(key, default=""):
-    df = fetch_data("SELECT value FROM settings WHERE key = ?", (key,))
-    if not df.empty:
-        return df.iloc[0]['value']
-    return default
-
-def set_setting(key, value):
-    execute_query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+# --- API KEYS ---
+FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY", "")
+AV_KEY = st.secrets.get("ALPHAVANTAGE_API_KEY", "")
 
 # --- Live Price API Logic ---
 def fetch_live_price(ticker, finnhub_key, av_key):
@@ -208,10 +264,13 @@ def update_prices_in_db(finnhub_key, av_key):
     total_tickers = len(unique_tickers_df)
     
     updated_count = 0
+    fetch_results = []
+    
     for i, row in unique_tickers_df.iterrows():
         ticker = row['ticker']
         live_price = fetch_live_price(ticker, finnhub_key, av_key)
         
+        status = "Success" if live_price is not None else "Failed"
         if live_price is not None:
             # Update current_price in holdings table
             update_query = """
@@ -222,15 +281,20 @@ def update_prices_in_db(finnhub_key, av_key):
             """
             execute_query(update_query, (live_price, datetime.now(), ticker))
             updated_count += 1
-            
-        # Respect rate limits (Alpha Vantage is 25/day free usually, Finnhub is 60/min)
-        # Add a small sleep to avoid getting blocked instantly if using many tickers
-        time.sleep(0.5) 
         
+        fetch_results.append({
+            "Ticker": ticker,
+            "Price": f"${live_price:.2f}" if live_price else "N/A",
+            "Status": status
+        })
+            
+        # Respect rate limits
+        time.sleep(0.5) 
         my_bar.progress((i + 1) / total_tickers, text=f"Fetched {ticker} ({i+1}/{total_tickers})")
     
+    st.session_state.latest_fetch_results = fetch_results
     my_bar.empty()
-    st.sidebar.success(f"Updated live prices for {updated_count} holding(s).")
+    st.sidebar.success(f"Updated {updated_count} holding(s).")
     
 # --- End Live Price API Logic ---
 
@@ -381,39 +445,28 @@ def parse_vested(file, filename=None):
 # --- UI COMPONENTS ---
 def sidebar():
     with st.sidebar:
-        st.header("Settings")
-        theme_mode = st.toggle("🌙 Dark Mode", value=False)
-        st.session_state.theme_mode = theme_mode
-
+        st.markdown("<div class='sidebar-header'>Settings</div>", unsafe_allow_html=True)
         use_inr = st.toggle("Show in INR (₹)", value=False)
         st.session_state.use_inr = use_inr
         
         if use_inr:
             rate = fetch_usd_inr_rate()
-            st.caption(f"Current Rate: $1 = ₹{rate:,.2f}")
+            st.caption(f"Rate: $1 = ₹{rate:,.2f}")
             
-        st.divider()
+        st.markdown("<div class='sidebar-header'>Maintenance</div>", unsafe_allow_html=True)
+        if st.button("🔄 Refresh Live Prices"):
+            if not FINNHUB_KEY and not AV_KEY:
+                st.sidebar.error("API Keys missing in secrets.toml.")
+            else:
+                update_prices_in_db(FINNHUB_KEY, AV_KEY)
+                st.rerun()
 
-        st.header("API Integration")
-        
-        finnhub_key = st.text_input("Finnhub API Key", type="password", help="Required for Finnhub live prices.", value=get_setting("FINNHUB_API_KEY"))
-        av_key = st.text_input("Alpha Vantage Key", type="password", help="Fallback if Finnhub limit reached.", value=get_setting("ALPHAVANTAGE_API_KEY"))
-        
-        c1, c2 = st.columns(2)
-        if c1.button("💾 Save Keys"):
-            set_setting("FINNHUB_API_KEY", finnhub_key)
-            set_setting("ALPHAVANTAGE_API_KEY", av_key)
-            st.success("Keys saved!")
+        if "latest_fetch_results" in st.session_state:
+            with st.expander("📊 Latest Fetch Summary"):
+                results_df = pd.DataFrame(st.session_state.latest_fetch_results)
+                st.dataframe(results_df, use_container_width=True, hide_index=True)
 
-        if c2.button("🔄 Refresh Live Prices"):
-            update_prices_in_db(finnhub_key, av_key)
-            st.rerun()
-
-        st.divider()
-        st.header("Portfolio Manager")
-        
-        # 1. Account Toggles
-        st.header("Active Accounts")
+        st.markdown("<div class='sidebar-header'>Accounts</div>", unsafe_allow_html=True)
         accounts_df = get_all_accounts()
         active_ids = []
         if not accounts_df.empty:
@@ -424,11 +477,8 @@ def sidebar():
                 if is_checked != bool(acc['is_active']):
                     update_account_status(acc['id'], is_checked)
                     st.rerun()
-        else:
-            st.info("No accounts imported yet.")
 
-        st.divider()
-        st.header("Import Data")
+        st.markdown("<div class='sidebar-header'>Import</div>", unsafe_allow_html=True)
         platform = st.selectbox("Select Platform", ["INDmoney", "Vested"])
         account_name = st.text_input("Friendly Name (optional)", "")
         
@@ -474,73 +524,10 @@ def sidebar():
         return active_ids
 
 def dashboard(active_ids):
-    # --- THEME INJECTION ---
-    dark_mode = st.session_state.get('theme_mode', True)
-    if dark_mode:
-        bg_col = "#111114"
-        sec_bg = "#19191E"
-        txt_col = "#FFFFFF"
-        txt_mut = "#8B949E"
-        border_col = "#2A2A35"
-        plotly_template = "plotly_dark"
-        chart_bars = ['#F2A900', '#00D1B2'] # Softer but visible yellow and teal for dark mode
-    else:
-        bg_col = "#F4F6F8"
-        sec_bg = "#FFFFFF"
-        txt_col = "#1E1E24"
-        txt_mut = "#6C757D"
-        border_col = "#E5E7EB"
-        plotly_template = "plotly_white"
-        chart_bars = ['#ffd166', '#06d6a0'] # Original bright colors for light mode
+    plotly_template = "plotly_white"
+    chart_bars = ['#ffd166', '#06d6a0'] # Original bright colors for light mode
 
-    st.markdown(f"""
-    <style>
-    [data-testid="stAppViewContainer"] {{ background-color: {bg_col} !important; }}
-    [data-testid="stSidebar"] {{ background-color: {sec_bg} !important; }}
-    [data-testid="stHeader"] {{ background-color: {bg_col} !important; }}
-    h1, h2, h3, h4, h5, h6, label {{ color: {txt_col} !important; }}
-    p {{ color: {txt_col}; }}
-    [data-testid="stMetric"] {{
-        background-color: {sec_bg};
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid {border_col};
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }}
-    [data-testid="stMetricLabel"] p {{ color: {txt_mut} !important; font-weight: 500; font-size: 0.9rem; }}
-    [data-testid="stMetricValue"] > div {{ color: {txt_col} !important; }}
-    [data-testid="stPlotlyChart"] {{
-        background-color: {sec_bg};
-        border-radius: 12px;
-        padding: 10px;
-        border: 1px solid {border_col};
-    }}
-    hr {{ border-color: {border_col} !important; }}
-    .stDataFrame {{ background-color: {sec_bg} !important; }}
-    
-    /* Fix sidebar white elements in dark mode */
-    [data-testid="stSidebar"] [data-baseweb="select"] > div {{ background-color: {sec_bg}; border-color: {border_col}; }}
-    [data-testid="stSidebar"] [data-baseweb="select"] * {{ color: {txt_col}; }}
-    [data-baseweb="popover"] > div {{ background-color: {sec_bg} !important; border: 1px solid {border_col}; }}
-    [data-baseweb="menu"] * {{ color: {txt_col} !important; }}
-    [data-baseweb="input"] > div {{ background-color: {sec_bg}; border-color: {border_col}; }}
-    [data-baseweb="input"] input {{ color: {txt_col} !important; }}
-    [data-testid="stFileUploader"] > section {{ background-color: {sec_bg}; border-color: {border_col}; }}
-    
-    /* Decrease table row spacing */
-    .row-text {{
-        font-size: 0.75rem;
-        margin: 0px !important;
-        padding: 4px 0px !important; /* Reduced padding */
-        line-height: 1.1 !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.title("🚀 Unified Portfolio Dashboard")
+    st.title("Unified Portfolio Dashboard")
     
     if not active_ids:
         st.info("Please select at least one active account in the sidebar.")
@@ -647,8 +634,18 @@ def dashboard(active_ids):
         ticker_sums, values='total_cost', names='ticker', 
         title='All Holdings (Invested)', hole=0.4
     )
-    fig_all_inv.update_traces(textposition='inside', textinfo='percent+label')
-    fig_all_inv.update_layout(template=plotly_template, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    fig_all_inv.update_traces(
+        textposition='inside', 
+        textinfo='percent+label',
+        insidetextorientation='horizontal'
+    )
+    fig_all_inv.update_layout(
+        template=plotly_template, 
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(t=40, b=0, l=10, r=10),
+        showlegend=False # Hide legend to keep labels focused on the chart
+    )
     c1.plotly_chart(fig_all_inv, use_container_width=True)
 
     # 3. All Holdings by Current Value (Pie)
@@ -656,8 +653,18 @@ def dashboard(active_ids):
         ticker_sums, values='total_value', names='ticker', 
         title='All Holdings (Current Value)', hole=0.4
     )
-    fig_all_val.update_traces(textposition='inside', textinfo='percent+label')
-    fig_all_val.update_layout(template=plotly_template, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+    fig_all_val.update_traces(
+        textposition='inside', 
+        textinfo='percent+label',
+        insidetextorientation='horizontal'
+    )
+    fig_all_val.update_layout(
+        template=plotly_template, 
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(t=40, b=0, l=10, r=10),
+        showlegend=False
+    )
     c2.plotly_chart(fig_all_val, use_container_width=True)
 
     st.divider()
@@ -701,34 +708,7 @@ def dashboard(active_ids):
     # --- UNIFIED HOLDINGS TABLE ---
     st.header("📇 Unified Holdings Breakdown")
     
-    # Header styling
-    st.markdown("""
-    <style>
-        .stButton>button {
-            width: 100% !important;
-            border: none !important;
-            background-color: transparent !important;
-            color: #2b3674 !important;
-            font-weight: 600 !important;
-            text-align: left !important;
-            padding: 0px !important;
-            min-height: 18px !important;
-            line-height: 1.1 !important;
-            font-size: 0.75rem !important;
-        }
-        /* Row text is now globally styled for mode overriding */
-        .account-count {
-            font-size: 0.65rem;
-            color: #6c757d;
-            vertical-align: super;
-            margin-left: 2px;
-        }
-        hr {
-            margin: 0px !important;
-            padding: 0px !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    # Row text and formatting is now globally defined at the top
     
     # Header Row (9 Columns)
     # Proportions: Ticker:1.2, Qty:0.8, Inv:1, Val:1, Avg:1, Curr:1, GainAmt:1, GainPct:1, Acc:0.6
@@ -749,7 +729,7 @@ def dashboard(active_ids):
             toggle_sort(key)
             st.rerun()
 
-    st.markdown("<hr style='margin: 0px; border-top: 2px solid #2b3674;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 0px; border-top: 1px solid #1E293B;'>", unsafe_allow_html=True)
 
     # Data Rows
     for _, stock in agg_df.iterrows():
@@ -824,7 +804,7 @@ def dashboard(active_ids):
                     use_container_width=True
                 )
         
-        st.markdown("<hr style='margin: 0px; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
+        st.markdown("<div class='row-divider'></div>", unsafe_allow_html=True)
 
     st.divider()
 
