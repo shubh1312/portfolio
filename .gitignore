@@ -1,6 +1,6 @@
 # Streamlit
 venv/
-.streamlit/
+.streamlit/secrets.toml
 static/
 
 # Database
