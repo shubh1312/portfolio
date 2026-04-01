@@ -60,17 +60,47 @@ def fetch_live_price(ticker, finnhub_key, av_key):
 
     return None
 
-def update_prices_in_db(finnhub_key, av_key):
-    if not finnhub_key and not av_key:
-        st.sidebar.warning("API Keys missing. Cannot fetch live prices.")
+def update_prices_in_db(finnhub_key, av_key, category=None):
+    if category == "US Market":
+        if not finnhub_key and not av_key:
+            st.sidebar.warning("US Market API Keys missing. Cannot fetch live prices.")
+            return
+
+        # Get all unique tickers from DB for this category
+        query = """
+        SELECT DISTINCT h.ticker 
+        FROM holdings h
+        JOIN accounts a ON h.account_id = a.id
+        WHERE a.asset_category = 'US Market'
+        """
+        unique_tickers_df = fetch_data(query)
+    elif category == "Crypto":
+        from services.crypto_service import update_crypto_live_prices
+        with st.spinner("Updating Crypto prices from Binance..."):
+            updated_count = update_crypto_live_prices()
+            if updated_count:
+                st.sidebar.success(f"Updated {updated_count} Crypto coin(s).")
+            else:
+                st.sidebar.warning("No Crypto prices updated.")
+        return
+    elif category == "Indian Mutual Funds":
+        from services.mf_service import update_mf_live_prices
+        with st.spinner("Updating MF prices from mfapi.in..."):
+            updated_count = update_mf_live_prices()
+            if updated_count:
+                st.sidebar.success(f"Updated {updated_count} MF(s).")
+            else:
+                st.sidebar.warning("No MF prices updated.")
+        return
+    else:
+        # Fallback to all if no category (or ignore based on user request)
         return
 
-    # Get all unique tickers from DB
-    unique_tickers_df = fetch_data("SELECT DISTINCT ticker FROM holdings")
     if unique_tickers_df.empty:
+        st.sidebar.info("No holdings found to update.")
         return
 
-    progress_text = "Fetching live prices. Please wait..."
+    progress_text = f"Fetching {category} prices. Please wait..."
     my_bar = st.progress(0, text=progress_text)
     total_tickers = len(unique_tickers_df)
     
@@ -93,9 +123,12 @@ def update_prices_in_db(finnhub_key, av_key):
             execute_query(update_query, (live_price, datetime.now(), ticker))
             updated_count += 1
         
+        # Display correctly based on category in summary
+        price_display = f"${live_price:,.2f}" if live_price else "N/A"
+        
         fetch_results.append({
             "Ticker": ticker,
-            "Price": f"${live_price:.2f}" if live_price else "N/A",
+            "Price": price_display,
             "Status": status
         })
             
@@ -105,4 +138,4 @@ def update_prices_in_db(finnhub_key, av_key):
     
     st.session_state.latest_fetch_results = fetch_results
     my_bar.empty()
-    st.sidebar.success(f"Updated {updated_count} holding(s).")
+    st.sidebar.success(f"Updated {updated_count} {category} holding(s).")

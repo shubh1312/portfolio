@@ -39,10 +39,17 @@ def init_db():
             platform TEXT,
             name TEXT,
             broker_id TEXT,
+            asset_category TEXT DEFAULT 'US Market',
             is_active INTEGER DEFAULT 1,
             UNIQUE(platform, broker_id, name)
         )
     ''')
+    
+    # Check if asset_category column exists, if not, add it
+    df_acc = fetch_data("PRAGMA table_info(accounts)")
+    if 'asset_category' not in df_acc['name'].values:
+        execute_query("ALTER TABLE accounts ADD COLUMN asset_category TEXT DEFAULT 'US Market'")
+
     # Holdings table linked to account
     execute_query('''
         CREATE TABLE IF NOT EXISTS holdings (
@@ -53,8 +60,14 @@ def init_db():
             avg_price REAL,
             current_price REAL,
             total_invested REAL,
+            currency TEXT DEFAULT 'USD',
             last_updated DATETIME,
             FOREIGN KEY(account_id) REFERENCES accounts(id),
             UNIQUE(account_id, ticker)
         )
     ''')
+    
+    # Check if currency column exists, if not, add it
+    df_holdings = fetch_data("PRAGMA table_info(holdings)")
+    if 'currency' not in df_holdings['name'].values:
+        execute_query("ALTER TABLE holdings ADD COLUMN currency TEXT DEFAULT 'USD'")

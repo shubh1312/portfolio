@@ -6,3 +6,5 @@ openpyxl
 xlrd
 sqlite-utils
 pytz
+kiteconnect
+pyyaml

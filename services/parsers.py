@@ -130,3 +130,52 @@ def parse_vested(file, filename=None):
         return final_df.dropna(subset=['ticker']), broker_id
 
     return pd.DataFrame(), broker_id
+
+def parse_zerodha(file, filename=None):
+    fname = filename if filename else file.name
+    broker_id = fname.split('.')[0] # Fallback to filename
+    
+    try:
+        if fname.lower().endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(file)
+        else:
+            df = pd.read_csv(file)
+    except Exception as e:
+        st.error(f"Zerodha file parsing failed: {e}")
+        return pd.DataFrame(), broker_id
+
+    # Common Zerodha Console headers
+    col_map = {
+        'ticker': ['Instrument', 'Symbol', 'Ticker'],
+        'quantity': ['Qty.', 'Quantity', 'Qty'],
+        'avg_price': ['Avg. cost', 'Average Price', 'Avg Price', 'Cost Price'],
+        'current_price': ['LTP', 'Last Traded Price', 'CMP', 'Cur. val'],
+        'total_invested': ['Invested Amount', 'Buy Value', 'Cur. val'] # Cur. val is not invested, but we might have to calculate it.
+    }
+
+    result_cols = {}
+    for target, suggestions in col_map.items():
+        for suggestion in suggestions:
+            match = next((col for col in df.columns if str(col).strip().lower() == suggestion.lower()), None)
+            if match:
+                result_cols[target] = df[match]
+                break
+    
+    mapped_df = pd.DataFrame(result_cols)
+    
+    if 'ticker' in mapped_df.columns and 'quantity' in mapped_df.columns:
+        # If Curr Price was mapped from "Cur. val", divide by quantity
+        if 'current_price' in mapped_df.columns and mapped_df['current_price'].mean() > mapped_df['avg_price'].mean() * 10:
+             # Heuristic: Value is likely Total Value, not Unit Price
+             mapped_df['current_price'] = mapped_df['current_price'] / mapped_df['quantity']
+        
+        # Calculate Total Invested if missing
+        if 'total_invested' not in mapped_df.columns or 'total_invested' == 'current_price':
+             mapped_df['total_invested'] = mapped_df['quantity'] * mapped_df['avg_price']
+        elif mapped_df['total_invested'].equals(mapped_df['current_price']):
+             mapped_df['total_invested'] = mapped_df['quantity'] * mapped_df['avg_price']
+
+        final_df = mapped_df[['ticker', 'quantity', 'avg_price', 'current_price', 'total_invested']].copy()
+        return final_df.dropna(subset=['ticker']), broker_id
+
+    return pd.DataFrame(), broker_id
