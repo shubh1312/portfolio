@@ -63,8 +63,9 @@ def update_crypto_live_prices():
     updated_count = 0
     
     for symbol in tickers_df['ticker'].tolist():
-        # Binance API: GET /api/v3/ticker/price?symbol=BTCUSDT
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+        # Using MEXC API instead of Binance to avoid 403 Forbidden geolocation IP errors on Streamlit Cloud
+        # MEXC API: GET /api/v3/ticker/price?symbol=BTCUSDT
+        url = f"https://api.mexc.com/api/v3/ticker/price?symbol={symbol}"
         try:
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
@@ -81,8 +82,8 @@ def update_crypto_live_prices():
                 execute_query(update_query, (price_inr, datetime.now(), symbol))
                 updated_count += 1
             else:
-                st.warning(f"Failed to fetch price for {symbol} from Binance.")
+                st.warning(f"Failed to fetch price for {symbol} from MEXC.")
         except Exception as e:
-            print(f"Binance API error for {symbol}: {e}")
+            print(f"MEXC API error for {symbol}: {e}")
             
     return updated_count
