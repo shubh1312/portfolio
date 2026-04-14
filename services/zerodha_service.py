@@ -19,20 +19,44 @@ def get_kite_instance(account_id):
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE, 'r') as f:
             tokens = json.load(f)
-            if str(account_id) in tokens:
-                 kite.set_access_token(tokens[str(account_id)])
+            # Support both old format (string only) and new-ish format (token + timestamp)
+            token_data = tokens.get(str(account_id))
+            if token_data:
+                if isinstance(token_data, dict):
+                    kite.set_access_token(token_data.get('access_token'))
+                else:
+                    kite.set_access_token(token_data)
     
     return kite
 
+def get_token_info(account_id):
+    """Retrieve token and its metadata (timestamp)."""
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, 'r') as f:
+            tokens = json.load(f)
+            data = tokens.get(str(account_id))
+            if isinstance(data, dict):
+                return data
+            elif data:
+                return {"access_token": data, "timestamp": None}
+    return None
+
 def save_access_token(account_id, access_token):
-    """Store access token in a persistent file."""
+    """Store access token in a persistent file with timestamp."""
     os.makedirs("data", exist_ok=True)
     tokens = {}
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE, 'r') as f:
-            tokens = json.load(f)
+            try:
+                tokens = json.load(f)
+            except:
+                tokens = {}
     
-    tokens[str(account_id)] = access_token
+    from datetime import datetime
+    tokens[str(account_id)] = {
+        "access_token": access_token,
+        "timestamp": datetime.now().isoformat()
+    }
     with open(TOKEN_FILE, 'w') as f:
         json.dump(tokens, f)
 
@@ -61,7 +85,12 @@ def sync_from_kite_api(api_key, api_secret, access_token, account_name, account_
         save_holdings(df_mapped, acc_id, currency="INR")
         return True
     except Exception as e:
-        st.error(f"Kite API Error ({full_name}): {e}")
+        error_msg = str(e)
+        print(f"ERROR: Zerodha sync failed for {full_name}: {error_msg}")
+        if "incorrect" in error_msg.lower() and "api_key" in error_msg.lower():
+             st.error(f"Kite API Error ({full_name}): Token expired or invalid. Please re-login on the Zerodha Connect page.")
+        else:
+             st.error(f"Kite API Error ({full_name}): {error_msg}")
         return False
 
 def sync_mf_from_kite_api(api_key, api_secret, access_token, account_name, account_id):
@@ -93,7 +122,12 @@ def sync_mf_from_kite_api(api_key, api_secret, access_token, account_name, accou
         save_holdings(df_mapped, acc_id, currency="INR")
         return True
     except Exception as e:
-        st.error(f"Kite MF API Error ({full_name}): {e}")
+        error_msg = str(e)
+        print(f"ERROR: Zerodha MF sync failed for {full_name}: {error_msg}")
+        if "incorrect" in error_msg.lower() and "api_key" in error_msg.lower():
+             st.error(f"Kite MF API Error ({full_name}): Token expired or invalid. Please re-login on the Zerodha Connect page.")
+        else:
+             st.error(f"Kite MF API Error ({full_name}): {error_msg}")
         return False
 
 def generate_kite_session(account_id, request_token):

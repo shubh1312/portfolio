@@ -9,7 +9,7 @@ from services.portfolio_service import (
     update_account_status, get_or_create_account, save_holdings
 )
 from services.parsers import parse_vested, parse_indmoney, parse_zerodha
-from services.zerodha_service import sync_from_kite_api, get_kite_instance
+from services.zerodha_service import sync_from_kite_api, sync_mf_from_kite_api, get_kite_instance, get_token_info
 
 def sidebar(category=None):
     FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY", "")
@@ -78,12 +78,22 @@ def sidebar(category=None):
                     user_id = st.secrets.get(f"ZERODHA_{i}_USER_ID", "")
                     label = f"{display_name} ({user_id})" if user_id else display_name
                     
-                    kite = get_kite_instance(i)
-                    if kite and kite.access_token:
+                    token_info = get_token_info(i)
+                    is_today = False
+                    if token_info and token_info.get("timestamp"):
+                        from datetime import datetime, date
+                        ts = datetime.fromisoformat(token_info.get("timestamp"))
+                        is_today = ts.date() == date.today()
+                    
+                    if token_info and token_info.get("access_token"):
+                        # Show warning if not from today
+                        if not is_today:
+                            st.caption(f"⚠️ {label}: Token likely expired")
+                        
                         if st.button(f"Sync Stocks {label}", key=f"sync_btn_{i}"):
                             api_secret = st.secrets.get(f"ZERODHA_{i}_API_SECRET", "")
                             with st.spinner(f"Syncing..."):
-                                if sync_from_kite_api(api_key, api_secret, kite.access_token, display_name, i):
+                                if sync_from_kite_api(api_key, api_secret, token_info['access_token'], display_name, i):
                                     st.toast(f"✅ {display_name} Stocks synced!")
                                     st.rerun()
                     else:
@@ -106,13 +116,22 @@ def sidebar(category=None):
                     user_id = st.secrets.get(f"ZERODHA_{i}_USER_ID", "")
                     label = f"{display_name} ({user_id})" if user_id else display_name
                     
-                    kite = get_kite_instance(i)
-                    if kite and kite.access_token:
+                    token_info = get_token_info(i)
+                    is_today = False
+                    if token_info and token_info.get("timestamp"):
+                        from datetime import datetime, date
+                        ts = datetime.fromisoformat(token_info.get("timestamp"))
+                        is_today = ts.date() == date.today()
+                    
+                    if token_info and token_info.get("access_token"):
+                        # Show warning if not from today
+                        if not is_today:
+                            st.caption(f"⚠️ {label}: Token likely expired")
+                        
                         if st.button(f"Sync Coin {label}", key=f"sync_mf_btn_{i}"):
                             api_secret = st.secrets.get(f"ZERODHA_{i}_API_SECRET", "")
-                            from services.zerodha_service import sync_mf_from_kite_api
                             with st.spinner(f"Syncing Coin..."):
-                                if sync_mf_from_kite_api(api_key, api_secret, kite.access_token, display_name, i):
+                                if sync_mf_from_kite_api(api_key, api_secret, token_info['access_token'], display_name, i):
                                     st.toast(f"✅ {display_name} Coin synced!")
                                     st.rerun()
                     else:
