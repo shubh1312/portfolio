@@ -180,6 +180,8 @@ def dashboard(active_ids, is_global=False):
     agg_df['current_price_disp'] = agg_df['total_value_disp'] / agg_df['quantity']
     agg_df['net_gain_disp'] = agg_df['total_value_disp'] - agg_df['total_cost_disp']
     agg_df['net_gain_pct'] = (agg_df['net_gain_disp'] / agg_df['total_cost_disp']) * 100
+    agg_df['portfolio_cost_pct'] = (agg_df['total_cost_disp'] / total_cost) * 100 if total_cost > 0 else 0
+    agg_df['portfolio_weight_pct'] = (agg_df['total_value_disp'] / total_portfolio_value) * 100 if total_portfolio_value > 0 else 0
     agg_df.rename(columns={'account_name': 'accounts_count'}, inplace=True)
 
     # --- SORTING & EXPANSION STATE ---
@@ -203,11 +205,12 @@ def dashboard(active_ids, is_global=False):
     # --- UNIFIED HOLDINGS TABLE ---
     st.header("📇 Unified Holdings Breakdown")
     
-    h_cols = st.columns([1.2, 0.8, 1, 1, 1, 1, 1, 1, 0.6])
+    h_cols = st.columns([1.2, 0.8, 1, 0.7, 1, 0.7, 1, 1, 1, 1, 0.6])
     headers = [
         ("Ticker", "ticker"), ("Qty", "quantity"), ("Invested", "total_cost_disp"), 
-        ("Value", "total_value_disp"), ("Avg Buy", "weighted_avg_price_disp"), 
-        ("Curr Price", "current_price_disp"), ("Gain Amt", "net_gain_disp"), ("Gain %", "net_gain_pct"),
+        ("% Cost", "portfolio_cost_pct"), ("Value", "total_value_disp"), ("% Weight", "portfolio_weight_pct"),
+        ("Avg Buy", "weighted_avg_price_disp"), ("Curr Price", "current_price_disp"), 
+        ("Gain Amt", "net_gain_disp"), ("Gain %", "net_gain_pct"),
         ("Acc", "accounts_count")
     ]
     
@@ -226,7 +229,9 @@ def dashboard(active_ids, is_global=False):
         ticker = stock['ticker']
         qty = stock['quantity']
         inv_disp = stock['total_cost_disp']
+        cost_pct = stock['portfolio_cost_pct']
         val_disp = stock['total_value_disp']
+        weight_pct = stock['portfolio_weight_pct']
         avg_buy_disp = stock['weighted_avg_price_disp']
         curr_price_disp = stock['current_price_disp']
         gain_amt_disp = stock['net_gain_disp']
@@ -236,7 +241,7 @@ def dashboard(active_ids, is_global=False):
         color = "#02b84b" if gain_p >= 0 else "#d93025"
         gain_str = f"{gain_p:+.2f}%"
 
-        r_cols = st.columns([1.2, 0.8, 1, 1, 1, 1, 1, 1, 0.6])
+        r_cols = st.columns([1.2, 0.8, 1, 0.7, 1, 0.7, 1, 1, 1, 1, 0.6])
         
         is_expanded = ticker in st.session_state.expanded_tickers
         arrow = "▼" if is_expanded else "▶"
@@ -250,18 +255,21 @@ def dashboard(active_ids, is_global=False):
             
         r_cols[1].markdown(f"<p class='row-text'>{qty:,.2f}</p>", unsafe_allow_html=True)
         r_cols[2].markdown(f"<p class='row-text'>{sym}{inv_disp:,.2f}</p>", unsafe_allow_html=True)
-        r_cols[3].markdown(f"<p class='row-text'>{sym}{val_disp:,.2f}</p>", unsafe_allow_html=True)
-        r_cols[4].markdown(f"<p class='row-text'>{sym}{avg_buy_disp:,.2f}</p>", unsafe_allow_html=True)
-        r_cols[5].markdown(f"<p class='row-text'>{sym}{curr_price_disp:,.2f}</p>", unsafe_allow_html=True)
-        r_cols[6].markdown(f"<p class='row-text' style='color:{color};'>{sym}{gain_amt_disp:,.2f}</p>", unsafe_allow_html=True)
-        r_cols[7].markdown(f"<p class='row-text' style='color:{color}; font-weight:bold;'>{gain_str}</p>", unsafe_allow_html=True)
-        r_cols[8].markdown(f"<p class='row-text' style='text-align: center;'>{acc_count}</p>", unsafe_allow_html=True)
+        r_cols[3].markdown(f"<p class='row-text' style='color:#a855f7;'>{cost_pct:.1f}%</p>", unsafe_allow_html=True)
+        r_cols[4].markdown(f"<p class='row-text'>{sym}{val_disp:,.2f}</p>", unsafe_allow_html=True)
+        r_cols[5].markdown(f"<p class='row-text' style='color:#6366f1; font-weight:bold;'>{weight_pct:.1f}%</p>", unsafe_allow_html=True)
+        r_cols[6].markdown(f"<p class='row-text'>{sym}{avg_buy_disp:,.2f}</p>", unsafe_allow_html=True)
+        r_cols[7].markdown(f"<p class='row-text'>{sym}{curr_price_disp:,.2f}</p>", unsafe_allow_html=True)
+        r_cols[8].markdown(f"<p class='row-text' style='color:{color};'>{sym}{gain_amt_disp:,.2f}</p>", unsafe_allow_html=True)
+        r_cols[9].markdown(f"<p class='row-text' style='color:{color}; font-weight:bold;'>{gain_str}</p>", unsafe_allow_html=True)
+        r_cols[10].markdown(f"<p class='row-text' style='text-align: center;'>{acc_count}</p>", unsafe_allow_html=True)
         
         if is_expanded:
             with st.container():
                 st.markdown(f"<div style='padding-left: 20px; font-size: 0.8rem;'>**Detailed breakdown for {ticker}**</div>", unsafe_allow_html=True)
                 ticker_df = df[df['ticker'] == ticker][['account_name', 'platform', 'quantity', 'avg_price_disp', 'current_price_disp', 'total_cost_disp', 'total_value_disp', 'gain_loss_disp']].copy()
                 ticker_df['gain_loss_pct'] = (ticker_df['gain_loss_disp'] / ticker_df['total_cost_disp']) * 100
+                ticker_df['% Portfolio'] = (ticker_df['total_value_disp'] / total_portfolio_value) * 100
                 st.dataframe(
                     ticker_df.style.format({
                         'avg_price_disp': sym + '{:,.2f}',
@@ -269,7 +277,8 @@ def dashboard(active_ids, is_global=False):
                         'total_cost_disp': sym + '{:,.2f}',
                         'total_value_disp': sym + '{:,.2f}',
                         'gain_loss_disp': sym + '{:,.2f}',
-                        'gain_loss_pct': '{:.2f}%'
+                        'gain_loss_pct': '{:.2f}%',
+                        '% Portfolio': '{:.2f}%'
                     }).applymap(lambda x: 'color: #02b84b' if isinstance(x, (int, float)) and x > 0 else ('color: #d93025' if isinstance(x, (int, float)) and x < 0 else ''), subset=['gain_loss_disp', 'gain_loss_pct']),
                     use_container_width=True
                 )
