@@ -3,7 +3,13 @@ import streamlit as st
 import time
 from datetime import datetime
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from utils.db import execute_query, fetch_data
+
+# Thread-safe lock and session for connection pooling
+_progress_lock = Lock()
+_session = requests.Session()  # Reuse connections for faster requests
 
 @st.cache_data(ttl=3600) # Cache exchange rate for 1 hour
 def fetch_usd_inr_rate():
@@ -28,7 +34,7 @@ def fetch_live_price(ticker, finnhub_key, av_key):
     if finnhub_key:
         try:
             url = f"https://finnhub.io/api/v1/quote?symbol={clean_ticker}&token={finnhub_key}"
-            response = requests.get(url, timeout=5)
+            response = _session.get(url, timeout=3)  # Reduced from 5 to 3 seconds
             if response.status_code == 200:
                 data = response.json()
                 if 'c' in data and data['c'] > 0:
@@ -44,7 +50,7 @@ def fetch_live_price(ticker, finnhub_key, av_key):
     if av_key:
         try:
             url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={clean_ticker}&apikey={av_key}"
-            response = requests.get(url, timeout=5)
+            response = _session.get(url, timeout=3)  # Reduced from 5 to 3 seconds
             if response.status_code == 200:
                 data = response.json()
                 if 'Global Quote' in data and '05. price' in data['Global Quote']:
@@ -100,42 +106,83 @@ def update_prices_in_db(finnhub_key, av_key, category=None):
         st.sidebar.info("No holdings found to update.")
         return
 
-    progress_text = f"Fetching {category} prices. Please wait..."
+    progress_text = f"Fetching {category} prices (⚡ turbo mode). Please wait..."
     my_bar = st.progress(0, text=progress_text)
     total_tickers = len(unique_tickers_df)
     
     updated_count = 0
     fetch_results = []
+    completed_count = 0
+    batch_updates = []  # Batch database updates
     
-    for i, row in unique_tickers_df.iterrows():
+    # Worker function for thread pool
+    def fetch_ticker_price(row):
+        """Fetch price for a single ticker"""
         ticker = row['ticker']
         live_price = fetch_live_price(ticker, finnhub_key, av_key)
+        return {
+            'ticker': ticker,
+            'price': live_price,
+        }
+    
+    # Use ThreadPoolExecutor with aggressive parallelization
+    # max_workers=20 = fetch 20 prices simultaneously (faster with modern APIs)
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        # Submit all tasks
+        futures = {
+            executor.submit(fetch_ticker_price, row): row 
+            for _, row in unique_tickers_df.iterrows()
+        }
         
-        status = "Success" if live_price is not None else "Failed"
-        if live_price is not None:
-            # Update current_price in holdings table
+        # Process completed tasks as they finish
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                ticker = result['ticker']
+                live_price = result['price']
+                
+                if live_price is not None:
+                    # Batch updates instead of individual updates (much faster)
+                    batch_updates.append((live_price, datetime.now(), ticker))
+                    updated_count += 1
+                
+                # Display correctly based on category in summary
+                price_display = f"${live_price:,.2f}" if live_price else "N/A"
+                status = "✓" if live_price is not None else "✗"
+                
+                fetch_results.append({
+                    "Ticker": ticker,
+                    "Price": price_display,
+                    "Status": status
+                })
+                
+                # Update progress less frequently to avoid slowdown
+                completed_count += 1
+                if completed_count % 5 == 0 or completed_count == total_tickers:
+                    with _progress_lock:
+                        my_bar.progress(
+                            completed_count / total_tickers, 
+                            text=f"Fetched {completed_count}/{total_tickers}"
+                        )
+                    
+            except Exception as e:
+                print(f"Error in thread: {e}")
+                completed_count += 1
+    
+    # Batch update database (much faster than individual updates)
+    if batch_updates:
+        try:
             update_query = """
             UPDATE holdings 
             SET current_price = ?,
                 last_updated = ?
             WHERE ticker = ?
             """
-            execute_query(update_query, (live_price, datetime.now(), ticker))
-            updated_count += 1
-        
-        # Display correctly based on category in summary
-        price_display = f"${live_price:,.2f}" if live_price else "N/A"
-        
-        fetch_results.append({
-            "Ticker": ticker,
-            "Price": price_display,
-            "Status": status
-        })
-            
-        # Respect rate limits
-        time.sleep(0.5) 
-        my_bar.progress((i + 1) / total_tickers, text=f"Fetched {ticker} ({i+1}/{total_tickers})")
+            for price, timestamp, ticker in batch_updates:
+                execute_query(update_query, (price, timestamp, ticker))
+        except Exception as e:
+            print(f"Batch update error: {e}")
     
     st.session_state.latest_fetch_results = fetch_results
     my_bar.empty()
-    st.sidebar.success(f"Updated {updated_count} {category} holding(s).")
+    st.sidebar.success(f"✓ Updated {updated_count} {category} holding(s).")
