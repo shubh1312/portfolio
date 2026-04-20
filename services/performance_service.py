@@ -73,6 +73,40 @@ def _cagr(current: float, invested: float, years: float) -> Optional[float]:
     return (current / invested) ** (1 / years) - 1
 
 
+def _calculate_return_with_withdrawals(cash_flows: List[Tuple[date, float]], current_value: float) -> Optional[float]:
+    """
+    Calculates CAGR for portfolios with withdrawals.
+    Uses net_movements (total capital that stayed invested) instead of total_invested.
+    
+    Scenario:
+        Invest 100K, withdraw 30K, end value 85K
+        - total_invested: 100K
+        - net_movements: 70K (100K - 30K)
+        - CAGR based on net: (85K / 70K)^(1/years) - 1 ✅ Better representation
+    
+    Returns:
+        CAGR as decimal (0.083 = 8.3%), or None if invalid
+    """
+    if not cash_flows or current_value <= 0:
+        return None
+    
+    # Capital that actually stayed invested
+    net_movements = sum(cf[1] for cf in cash_flows)
+    
+    # If net movements <= 0 (all withdrawn), can't calculate meaningful CAGR
+    if net_movements <= 0:
+        return None
+    
+    earliest_date = min(cf[0] for cf in cash_flows)
+    years = _years_since(earliest_date)
+    
+    if years <= 0:
+        return None
+    
+    # Return based on remaining capital
+    return (current_value / net_movements) ** (1 / years) - 1
+
+
 def _abs_return(current: float, invested: float) -> Optional[float]:
     if invested <= 0:
         return None
@@ -164,8 +198,14 @@ def _calculate_irr(cash_flows: List[Tuple[date, float]], current_value: float) -
 
 def _calculate_segmented_cagr(cash_flows: List[Tuple[date, float]], current_value: float) -> Optional[float]:
     """
-    Returns simple CAGR from oldest investment to today.
-    Allocates current value proportionally to each cash flow for blended return.
+    Returns CAGR from oldest investment to today.
+    
+    Smartly handles withdrawals:
+    - If no withdrawals: uses traditional CAGR = (final / total_invested)
+    - If withdrawals exist: uses net-capital CAGR = (final / net_movements)
+    
+    This ensures CAGR reflects actual returns on capital deployed, not artificial
+    negative returns from portfolio reductions.
     """
     if not cash_flows or current_value <= 0:
         return None
@@ -174,6 +214,9 @@ def _calculate_segmented_cagr(cash_flows: List[Tuple[date, float]], current_valu
     if total_invested <= 0:
         return None
     
+    # Check if there are withdrawals
+    total_withdrawals = sum(abs(cf[1]) for cf in cash_flows if cf[1] < 0)
+    
     # Find earliest date
     earliest_date = min(cf[0] for cf in cash_flows)
     years = _years_since(earliest_date)
@@ -181,7 +224,19 @@ def _calculate_segmented_cagr(cash_flows: List[Tuple[date, float]], current_valu
     if years <= 0:
         return None
     
-    return _cagr(current_value, total_invested, years)
+    # If there are withdrawals, use net CAGR instead of traditional CAGR
+    if total_withdrawals > 0:
+        # Net capital = what stayed in portfolio
+        net_capital = total_invested - total_withdrawals
+        if net_capital > 0:
+            # This uses the new improved formula
+            return (current_value / net_capital) ** (1 / years) - 1
+        else:
+            # More withdrawn than invested (fully redeemed), can't calculate
+            return None
+    else:
+        # No withdrawals, use traditional CAGR
+        return _cagr(current_value, total_invested, years)
 
 
 # ── Transaction-based helpers ──────────────────────────────────────────────────
