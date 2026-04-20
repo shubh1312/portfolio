@@ -8,3 +8,9 @@ sqlite-utils
 pytz
 kiteconnect
 pyyaml
+gspread
+google-auth-oauthlib
+google-auth-httplib2
+google-auth
+numpy
+scipy
