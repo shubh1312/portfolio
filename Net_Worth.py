@@ -1,14 +1,15 @@
 import streamlit as st
-from components.sidebar import sidebar
-from components.dashboard import dashboard
-from utils.theme import apply_custom_styles
-from utils.db import init_db
 
-st.set_page_config(page_title="Net Worth - Unified Portfolio Tracker", page_icon="💰", layout="wide")
-apply_custom_styles()
-init_db()
+st.set_page_config(page_title="Portfolio Tracker", layout="wide", initial_sidebar_state="expanded")
 
-# Sidebar with no category means global view
-active_ids = sidebar() 
-st.header("💰 Net Worth")
-dashboard(active_ids, is_global=True)
+pg = st.navigation([
+    st.Page("pages/7_Performance.py",         title="Performance",    default=True),
+    st.Page("pages/1_US_Market.py",           title="US Market"),
+    st.Page("pages/2_Indian_Stock_Market.py", title="Indian Stocks"),
+    st.Page("pages/3_Indian_Mutual_Funds.py", title="Mutual Funds"),
+    st.Page("pages/4_Crypto.py",              title="Crypto"),
+    st.Page("pages/6_Lending.py",             title="Lending"),
+    st.Page("pages/8_Portfolio.py",           title="Portfolio"),
+])
+
+pg.run()

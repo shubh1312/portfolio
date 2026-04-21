@@ -24,142 +24,35 @@ from services.gsheet_service import (
 )
 
 # ── Page Config ────────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Performance Tracker", 
-    page_icon="🚀",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 apply_custom_styles()
 init_db()
 
-# ── Page Styles ────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-.perf-metric-card {
-    background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 8px;
-}
-
-.perf-metric-card:hover {
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
-}
-
-.metric-label {
-    font-size: 0.72rem;
-    font-weight: 700;
-    color: #64748B;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 6px;
-}
-
-.metric-value {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #0F172A;
-}
-
-.metric-sub {
-    font-size: 0.75rem;
-    color: #94A3B8;
-    margin-top: 4px;
-}
-
-.asset-card {
-    background: white;
-    border: 1px solid #E2E8F0;
-    border-radius: 10px;
-    padding: 16px;
-    margin-bottom: 12px;
-}
-
-.asset-card:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.success-badge {
-    display: inline-block;
-    background: #DCFCE7;
-    color: #166534;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 700;
-}
-
-.danger-badge {
-    display: inline-block;
-    background: #FEE2E2;
-    color: #991B1B;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 700;
-}
-
-.warning-badge {
-    display: inline-block;
-    background: #FEF3C7;
-    color: #B45309;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 700;
-}
-
-.irr-label {
-    display: inline-block;
-    background: #DBEAFE;
-    color: #0369A1;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    font-weight: 700;
-}
-</style>
-""", unsafe_allow_html=True)
+# All badge/card styles are provided by apply_custom_styles() in theme.py
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("#### ⚙️ Performance Settings")
-    
+    st.markdown("<div class='sidebar-header'>Display</div>", unsafe_allow_html=True)
     use_inr = st.toggle("Show in INR (₹)", value=True)
     st.session_state.display_currency = "INR" if use_inr else "USD"
     target_currency = "INR" if use_inr else "USD"
     sym = "₹" if use_inr else "$"
-    
+
     fx_rate = fetch_usd_inr_rate() or 83.0
-    st.caption(f"📊 USD/INR: ₹{fx_rate:,.2f}")
-    
-    st.divider()
-    
-    # Data sync button
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    st.caption(f"USD/INR: ₹{fx_rate:,.2f}")
+
+    st.markdown("<div class='sidebar-header'>Actions</div>", unsafe_allow_html=True)
+    if st.button("Refresh data", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
-    
-    st.divider()
-    
-    st.markdown("""
-    <div style='background:#F0F9FF;border-radius:8px;padding:12px;font-size:0.8rem;'>
-    <b>📋 Transaction Format:</b><br><br>
-    Your Google Sheet should have:<br><br>
-    <b>Transactions</b> tab with:<br>
-    • asset_class<br>
-    • amount (±)<br>
-    • investment_date<br>
-    • currency (USD, INR, etc)<br>
-    • notes<br><br>
-    <b>Cash</b> tab with:<br>
-    • asset_class<br>
-    • amount<br>
-    • currency (USD, INR, etc)
-    </div>
-    """, unsafe_allow_html=True)
+
+    with st.expander("Sheet format reference"):
+        st.markdown("""
+        **Transactions** tab:
+        - `asset_class`, `amount` (±), `investment_date`, `currency`, `notes`
+
+        **Cash** tab:
+        - `asset_class`, `amount`, `currency`
+        """)
 
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
@@ -261,7 +154,7 @@ def render_asset_card(row, sym: str):
 
 
 # ── Page Header ────────────────────────────────────────────────────────────────
-st.markdown("# 🚀 Performance Tracker v2")
+st.markdown("# 🚀 Performance Tracker")
 st.markdown("**Track capital invested vs current value with accurate Money-Weighted Returns (IRR)**")
 st.divider()
 

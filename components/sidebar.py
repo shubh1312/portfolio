@@ -1,270 +1,244 @@
 import streamlit as st
 import pandas as pd
-import os
 
 from services.market_data import fetch_usd_inr_rate, update_prices_in_db
 from services.email_sync import sync_latest_reports_from_email
 from services.portfolio_service import (
-    get_all_accounts, delete_account, update_account_name, 
-    update_account_status, get_or_create_account, save_holdings
+    get_all_accounts, delete_account, update_account_name,
+    update_account_status, get_or_create_account, save_holdings,
 )
 from services.parsers import parse_vested, parse_indmoney, parse_zerodha
-from services.zerodha_service import sync_from_kite_api, sync_mf_from_kite_api, get_kite_instance, get_token_info
+from services.zerodha_service import sync_from_kite_api, sync_mf_from_kite_api, get_token_info
+
 
 def sidebar(category=None):
     FINNHUB_KEY = st.secrets.get("FINNHUB_API_KEY", "")
-    AV_KEY = st.secrets.get("ALPHAVANTAGE_API_KEY", "")
+    AV_KEY      = st.secrets.get("ALPHAVANTAGE_API_KEY", "")
 
-    # Global: Catch-all for Kite Redirect
-    query_params = st.query_params
-    if "request_token" in query_params:
-        request_token = query_params["request_token"]
+    # ── Zerodha OAuth redirect handler ────────────────────────────────────────
+    if "request_token" in st.query_params:
+        request_token = st.query_params["request_token"]
         st.sidebar.markdown("""
-        <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border:1px solid #ffeeba; margin-bottom:15px;">
-            <strong>Incoming Zerodha Login</strong><br>
-            Request token detected. Which account should we save this for?
+        <div style="background:rgba(199,246,81,.08);padding:12px 14px;
+             border-radius:8px;border:1px solid rgba(199,246,81,.2);margin-bottom:12px;
+             font-size:12px;color:#EDE6D6;">
+            <strong>Zerodha login detected</strong><br>
+            Select the account to link this session to:
         </div>
         """, unsafe_allow_html=True)
-        
         cols = st.sidebar.columns(3)
         for i in range(1, 4):
             display_name = st.secrets.get(f"ZERODHA_{i}_DISPLAY_NAME", f"Acc {i}")
-            if cols[i-1].button(display_name):
+            if cols[i - 1].button(display_name, key=f"oauth_acc_{i}"):
                 from services.zerodha_service import generate_kite_session
                 if generate_kite_session(i, request_token):
-                    st.toast(f"✅ {display_name} Authenticated!", icon="🚀")
+                    st.toast(f"{display_name} authenticated", icon="✓")
                     st.query_params.clear()
                     st.rerun()
 
     with st.sidebar:
-        st.markdown(f"<div class='sidebar-header'>{category if category else 'Global'} Settings</div>", unsafe_allow_html=True)
-        
-        # Currency Toggle
-        use_inr = st.toggle("Show all in INR (₹)", value=(category != "US Market"))
+        # ── Currency toggle ────────────────────────────────────────────────────
+        use_inr = st.toggle("Show in INR (₹)", value=(category != "US Market"))
         st.session_state.use_inr = use_inr
-        
         if use_inr:
             rate = fetch_usd_inr_rate()
             if rate:
-                st.caption(f"Conversion Rate: $1 = ₹{rate:,.2f}")
-            
-        st.markdown("<div class='sidebar-header'>Maintenance</div>", unsafe_allow_html=True)
-        if category in ["US Market", "Crypto", "Indian Mutual Funds"]:
-            if st.button(f"🔄 Refresh {category} Prices"):
+                st.caption(f"$1 = ₹{rate:,.2f}")
+
+        # ── Sync actions (contextual per page) ────────────────────────────────
+        has_sync = category in ("US Market", "Crypto", "Indian Mutual Funds",
+                                "Indian Stock Market", "Lending")
+        if has_sync:
+            st.markdown("<div class='sidebar-header'>Sync</div>", unsafe_allow_html=True)
+
+        if category in ("US Market", "Crypto", "Indian Mutual Funds"):
+            label_map = {
+                "US Market":           "Refresh US prices",
+                "Crypto":              "Refresh crypto prices",
+                "Indian Mutual Funds": "Refresh MF prices",
+            }
+            if st.button(label_map[category], key="refresh_prices"):
                 if category == "US Market" and not FINNHUB_KEY and not AV_KEY:
-                    st.sidebar.error("API Keys missing in secrets.toml.")
+                    st.sidebar.error("API keys missing in secrets.toml.")
                 else:
-                    with st.spinner("Updating prices..."):
+                    with st.spinner("Updating prices…"):
                         update_prices_in_db(FINNHUB_KEY, AV_KEY, category=category)
                         st.rerun()
-        else:
-            st.info(f"Price sync not needed for {category if category else 'Global'}.")
 
         if category == "US Market":
-            if st.button("📧 Sync US Reports from Email"):
-                with st.spinner("Syncing..."):
+            if st.button("Sync reports from email", key="sync_email"):
+                with st.spinner("Syncing…"):
                     sync_latest_reports_from_email()
                     st.rerun()
-        
+
         if category == "Indian Stock Market":
-            # API Sync Option for Zerodha
-            st.markdown("---")
-            st.caption("⚡ Automated Zerodha Sync")
-            auth_needed = False
-            for i in range(1, 4):
-                api_key = st.secrets.get(f"ZERODHA_{i}_API_KEY", "")
-                if api_key and "your_api_key" not in api_key:
-                    display_name = st.secrets.get(f"ZERODHA_{i}_DISPLAY_NAME", f"Acc {i}")
-                    user_id = st.secrets.get(f"ZERODHA_{i}_USER_ID", "")
-                    label = f"{display_name} ({user_id})" if user_id else display_name
-                    
-                    token_info = get_token_info(i)
-                    is_today = False
-                    if token_info and token_info.get("timestamp"):
-                        from datetime import datetime, date
-                        ts = datetime.fromisoformat(token_info.get("timestamp"))
-                        is_today = ts.date() == date.today()
-                    
-                    if token_info and token_info.get("access_token"):
-                        # Show warning if not from today
-                        if not is_today:
-                            st.caption(f"⚠️ {label}: Token likely expired")
-                        
-                        if st.button(f"Sync Stocks {label}", key=f"sync_btn_{i}"):
-                            api_secret = st.secrets.get(f"ZERODHA_{i}_API_SECRET", "")
-                            with st.spinner(f"Syncing..."):
-                                if sync_from_kite_api(api_key, api_secret, token_info['access_token'], display_name, i):
-                                    st.toast(f"✅ {display_name} Stocks synced!")
-                                    st.rerun()
-                    else:
-                        st.caption(f"⚠️ {label}: Login required")
-                        auth_needed = True
-            
-            if auth_needed:
-                if st.button("🔗 Go to Zerodha Connect", key="go_auth_stocks"):
-                    st.switch_page("pages/5_Zerodha_Connect.py")
-        
+            _zerodha_sync_ui(mode="stocks")
+
         if category == "Indian Mutual Funds":
-            # API Sync Option for Zerodha Coin
-            st.markdown("---")
-            st.caption("⚡ Automated Zerodha Coin Sync")
-            auth_needed = False
-            for i in range(1, 4):
-                api_key = st.secrets.get(f"ZERODHA_{i}_API_KEY", "")
-                if api_key and "your_api_key" not in api_key:
-                    display_name = st.secrets.get(f"ZERODHA_{i}_DISPLAY_NAME", f"Acc {i}")
-                    user_id = st.secrets.get(f"ZERODHA_{i}_USER_ID", "")
-                    label = f"{display_name} ({user_id})" if user_id else display_name
-                    
-                    token_info = get_token_info(i)
-                    is_today = False
-                    if token_info and token_info.get("timestamp"):
-                        from datetime import datetime, date
-                        ts = datetime.fromisoformat(token_info.get("timestamp"))
-                        is_today = ts.date() == date.today()
-                    
-                    if token_info and token_info.get("access_token"):
-                        # Show warning if not from today
-                        if not is_today:
-                            st.caption(f"⚠️ {label}: Token likely expired")
-                        
-                        if st.button(f"Sync Coin {label}", key=f"sync_mf_btn_{i}"):
-                            api_secret = st.secrets.get(f"ZERODHA_{i}_API_SECRET", "")
-                            with st.spinner(f"Syncing Coin..."):
-                                if sync_mf_from_kite_api(api_key, api_secret, token_info['access_token'], display_name, i):
-                                    st.toast(f"✅ {display_name} Coin synced!")
-                                    st.rerun()
-                    else:
-                        st.caption(f"⚠️ {label}: Login required")
-                        auth_needed = True
-            
-            if auth_needed:
-                if st.button("🔗 Go to Zerodha Connect", key="go_auth_mf"):
-                    st.switch_page("pages/5_Zerodha_Connect.py")
-            
-            st.markdown("---")
-            st.caption("⚡ Paytm Money (Google Sheet) Sync")
-            if st.button("🔄 Sync Paytm MFs from Google Sheet"):
+            _zerodha_sync_ui(mode="mf")
+            if st.button("Sync Paytm MFs from Google Sheet", key="sync_paytm_mf"):
                 from services.mf_service import sync_mf_from_gsheet
-                with st.spinner("Fetching Google Sheet..."):
+                with st.spinner("Fetching…"):
                     if sync_mf_from_gsheet():
-                        st.success("Paytm MF holdings synced!")
                         st.rerun()
 
         if category == "Crypto":
-            st.markdown("---")
-            st.caption("⚡ Google Sheet Core Sync")
-            if st.button("🔄 Sync Crypto from Google Sheet"):
+            if st.button("Sync crypto from Google Sheet", key="sync_crypto"):
                 from services.crypto_service import sync_crypto_from_gsheet
-                with st.spinner("Fetching Google Sheet..."):
+                with st.spinner("Fetching…"):
                     if sync_crypto_from_gsheet():
-                        st.success("Crypto holdings synced!")
                         st.rerun()
 
         if category == "Lending":
-            st.markdown("---")
-            st.caption("⚡ Google Sheet Core Sync")
-            if st.button("🔄 Sync Lending from Google Sheet"):
+            if st.button("Sync lending from Google Sheet", key="sync_lending"):
                 from services.lending_service import sync_lending_from_gsheet
-                with st.spinner("Fetching Google Sheet..."):
+                with st.spinner("Fetching…"):
                     if sync_lending_from_gsheet():
-                        st.success("Lending data synced!")
                         st.rerun()
 
-        if "latest_fetch_results" in st.session_state:
-            with st.expander("📊 Latest Fetch Summary"):
-                results_df = pd.DataFrame(st.session_state.latest_fetch_results)
-                st.dataframe(results_df, use_container_width=True, hide_index=True)
+        # ── Accounts ──────────────────────────────────────────────────────────
+        st.markdown("<div class='sidebar-header'>Accounts</div>", unsafe_allow_html=True)
 
-        # Account Management
-        header = f"{category} Accounts" if category else "All Accounts"
-        st.markdown(f"<div class='sidebar-header'>{header}</div>", unsafe_allow_html=True)
-        
         accounts_df = get_all_accounts(category)
-        active_ids = []
+        active_ids  = []
         if not accounts_df.empty:
             for _, acc in accounts_df.iterrows():
                 col_check, col_name, col_del = st.columns([0.15, 0.7, 0.15])
-                is_checked = col_check.checkbox("", value=bool(acc['is_active']), key=f"acc_chk_{acc['id']}", label_visibility="collapsed")
-                new_name = col_name.text_input("", value=acc['name'], key=f"acc_name_{acc['id']}", label_visibility="collapsed")
-                
-                if col_del.button("🗑️", key=f"del_{acc['id']}"):
-                    delete_account(acc['id'])
+                is_checked = col_check.checkbox(
+                    "", value=bool(acc["is_active"]),
+                    key=f"acc_chk_{acc['id']}", label_visibility="collapsed",
+                )
+                new_name = col_name.text_input(
+                    "", value=acc["name"],
+                    key=f"acc_name_{acc['id']}", label_visibility="collapsed",
+                )
+                if col_del.button("✕", key=f"del_{acc['id']}"):
+                    delete_account(acc["id"])
                     st.rerun()
-
-                if new_name != acc['name']:
-                    update_account_name(acc['id'], new_name)
+                if new_name != acc["name"]:
+                    update_account_name(acc["id"], new_name)
                     st.rerun()
-                
                 if is_checked:
-                    active_ids.append(acc['id'])
-                if is_checked != bool(acc['is_active']):
-                    update_account_status(acc['id'], is_checked)
+                    active_ids.append(acc["id"])
+                if is_checked != bool(acc["is_active"]):
+                    update_account_status(acc["id"], is_checked)
                     st.rerun()
         else:
-            st.info(f"No {category if category else ''} accounts found.")
+            st.caption(f"No {'  ' + category if category else ''} accounts yet.")
 
-        # Import Logic based on category
-        st.markdown("<div class='sidebar-header'>Import Data</div>", unsafe_allow_html=True)
-        
-        if category == "US Market":
-            uploaded_files = st.file_uploader("Upload INDmoney/Vested files (US)", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True)
-            if uploaded_files and st.button("Process US Files"):
-                process_files(uploaded_files, "US Market")
-        
-        elif category == "Indian Stock Market":
-            uploaded_files = st.file_uploader("Upload Zerodha Console XLSX/CSV", type=['csv', 'xlsx'], accept_multiple_files=True)
-            if uploaded_files and st.button("Process Zerodha Files"):
-                process_files(uploaded_files, "Indian Stock Market")
-                
-        elif category == "Indian Mutual Funds":
-            uploaded_files = st.file_uploader("Upload Coin/Paytm Money files", type=['csv', 'xlsx'], accept_multiple_files=True)
-            if uploaded_files and st.button("Process Mutual Fund Files"):
-                process_files(uploaded_files, "Indian Mutual Funds")
+        # ── Import ─────────────────────────────────────────────────────────────
+        if category in ("US Market", "Indian Stock Market", "Indian Mutual Funds"):
+            st.markdown("<div class='sidebar-header'>Import</div>", unsafe_allow_html=True)
 
-        elif not category:
-            st.caption("Go to specific pages to import data.")
+            label_map = {
+                "US Market":           ("INDmoney / Vested CSV or XLSX", ["csv", "xlsx", "xls"]),
+                "Indian Stock Market": ("Zerodha Console XLSX / CSV",    ["csv", "xlsx"]),
+                "Indian Mutual Funds": ("Coin / Paytm Money files",      ["csv", "xlsx"]),
+            }
+            lbl, exts = label_map[category]
+            uploaded = st.file_uploader(lbl, type=exts, accept_multiple_files=True,
+                                        label_visibility="collapsed")
+            if uploaded and st.button("Process files", key="process_files"):
+                _process_files(uploaded, category)
+
+        # ── Fetch summary (collapsed) ──────────────────────────────────────────
+        if "latest_fetch_results" in st.session_state:
+            with st.expander("Last fetch summary"):
+                st.dataframe(
+                    pd.DataFrame(st.session_state.latest_fetch_results),
+                    use_container_width=True, hide_index=True,
+                )
 
         return active_ids
 
-def process_files(uploaded_files, category):
-    processed_count = 0
-    for uploaded_file in uploaded_files:
+
+def _zerodha_sync_ui(mode: str):
+    """Render per-account Zerodha auth status, login link, and sync button."""
+    from datetime import datetime, date
+
+    any_configured = False
+    for i in range(1, 4):
+        api_key = st.secrets.get(f"ZERODHA_{i}_API_KEY", "")
+        if not api_key or "your_api_key" in api_key:
+            continue
+        any_configured = True
+
+        display_name = st.secrets.get(f"ZERODHA_{i}_DISPLAY_NAME", f"Acc {i}")
+        user_id      = st.secrets.get(f"ZERODHA_{i}_USER_ID", "")
+        label        = f"{display_name} ({user_id})" if user_id else display_name
+
+        token_info = get_token_info(i)
+        is_today   = False
+        if token_info and token_info.get("timestamp"):
+            ts = datetime.fromisoformat(token_info["timestamp"])
+            is_today = ts.date() == date.today()
+
+        is_valid = token_info and token_info.get("access_token") and is_today
+
+        if is_valid:
+            if st.button(
+                f"Sync {label}" if mode == "stocks" else f"Sync Coin {label}",
+                key=f"sync_{mode}_{i}",
+            ):
+                api_secret = st.secrets.get(f"ZERODHA_{i}_API_SECRET", "")
+                with st.spinner("Syncing…"):
+                    if mode == "stocks":
+                        ok = sync_from_kite_api(api_key, api_secret,
+                                                token_info["access_token"], display_name, i)
+                    else:
+                        ok = sync_mf_from_kite_api(api_key, api_secret,
+                                                   token_info["access_token"], display_name, i)
+                    if ok:
+                        st.toast(f"{display_name} synced")
+                        st.rerun()
+        else:
+            status = "token expired" if (token_info and token_info.get("access_token")) else "not logged in"
+            st.caption(f"{label}: {status}")
+            login_url = f"https://kite.zerodha.com/connect/login?v=3&api_key={api_key}"
+            st.link_button(f"Login — {display_name}", login_url, use_container_width=True)
+
+    if not any_configured:
+        st.caption("No Zerodha accounts configured in secrets.toml.")
+
+
+def _process_files(uploaded_files, category):
+    from services.portfolio_service import get_or_create_account, save_holdings
+
+    processed = 0
+    for f in uploaded_files:
         try:
-            # Heuristic for detection
             is_vested = False
-            if uploaded_file.name.endswith('.xlsx'):
+            if f.name.endswith(".xlsx"):
                 try:
-                    xls_test = pd.ExcelFile(uploaded_file)
-                    if 'Holdings' in xls_test.sheet_names and 'User Details' in xls_test.sheet_names:
+                    xls_test = pd.ExcelFile(f)
+                    if {"Holdings", "User Details"} <= set(xls_test.sheet_names):
                         is_vested = True
-                    uploaded_file.seek(0)
-                except:
+                    f.seek(0)
+                except Exception:
                     pass
 
             if category == "US Market":
                 if is_vested:
-                    df, b_id = parse_vested(uploaded_file, uploaded_file.name)
+                    df, b_id = parse_vested(f, f.name)
                     acc_id = get_or_create_account("Vested", b_id, b_id, asset_category="US Market")
                 else:
-                    df, b_id = parse_indmoney(uploaded_file, uploaded_file.name)
+                    df, b_id = parse_indmoney(f, f.name)
                     acc_id = get_or_create_account("INDmoney", b_id, b_id, asset_category="US Market")
-                currency = 'USD'
+                currency = "USD"
             elif category == "Indian Stock Market":
-                df, b_id = parse_zerodha(uploaded_file, uploaded_file.name)
+                df, b_id = parse_zerodha(f, f.name)
                 acc_id = get_or_create_account("Zerodha", b_id, b_id, asset_category="Indian Stock Market")
-                currency = 'INR'
+                currency = "INR"
             elif category == "Indian Mutual Funds":
-                # Placeholder for Mutual Fund parser
-                st.warning("Mutual Fund parser not implemented yet.")
+                st.warning("Mutual Fund file parser not yet implemented.")
                 continue
-            
+
             if not df.empty:
                 save_holdings(df, acc_id, currency=currency)
-                processed_count += 1
+                processed += 1
         except Exception as e:
-            st.error(f"Error processing {uploaded_file.name}: {e}")
-    
-    if processed_count > 0:
-        st.success(f"Successfully processed {processed_count} file(s)!")
+            st.error(f"Error processing {f.name}: {e}")
+
+    if processed > 0:
+        st.success(f"Processed {processed} file(s).")
         st.rerun()
