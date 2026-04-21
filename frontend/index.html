@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Orbit · Portfolio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="shell.css"/>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="shell.jsx"></script>
+<script type="text/babel" src="page-netwrorth.jsx"></script>
+<script type="text/babel" src="page-secondary.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+const API = 'http://localhost:8000/api';
+
+function parseHash(){
+  const h = (location.hash || '#/').replace(/^#\//,'');
+  if(!h) return { route:'home', cls:null };
+  if(['us','ind','mf','crypto','lend'].includes(h)) return { route:h, cls:h };
+  if(h==='performance') return { route:'perf' };
+  if(h==='connections') return { route:'conn' };
+  if(h==='settings') return { route:'set' };
+  return { route:'home' };
+}
+
+function App(){
+  const [state, setState] = useState(parseHash());
+  const [currency, setCurrency] = useState(localStorage.getItem('cur') || 'INR');
+  const [portfolioData, setPortfolioData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(()=>{
+    const onHash = () => setState(parseHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  },[]);
+  useEffect(()=>{ localStorage.setItem('cur', currency); }, [currency]);
+
+  useEffect(()=>{
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      fetch(`${API}/portfolio/summary?currency=${currency}`).then(r=>r.json()),
+      fetch(`${API}/portfolio/assets?currency=${currency}`).then(r=>r.json()),
+      fetch(`${API}/holdings?currency=${currency}`).then(r=>r.json()),
+      fetch(`${API}/transactions?currency=${currency}`).then(r=>r.json()),
+      fetch(`${API}/cash?currency=${currency}`).then(r=>r.json()),
+    ]).then(([sumRes, assetsRes, holdRes, txnRes, cashRes])=>{
+      // Map asset classes from API names to frontend metadata
+      const assetClasses = (assetsRes.data || []).map(a => {
+        const m = CLASS_META[a.asset_class] || { key: a.asset_class.toLowerCase().replace(/\s+/g,'_'), name: a.asset_class, color:'#888', icon:'?' };
+        return { ...m, apiName: a.asset_class, value: a.total_value, invested: a.total_invested, gain: a.gain, gain_pct: a.gain_pct, cagr_pct: a.cagr_pct, irr_pct: a.irr_pct, txns: a.transaction_count, cash_reserves: a.cash_reserves, earliest_date: a.earliest_date };
+      });
+
+      // Group holdings by ticker+class (merges same ticker across accounts)
+      const grouped = {};
+      (holdRes.data || []).forEach(h => {
+        const m = CLASS_META[h.asset_category] || { key:'other', color:'#888' };
+        const gkey = `${h.ticker}_${m.key}`;
+        if (!grouped[gkey]) grouped[gkey] = { sym:h.ticker, name:h.ticker, cls:m.key, qty:0, price:h.current_price, cur:currency, invested:0, value:0, gain:0, accounts:[] };
+        const g = grouped[gkey];
+        g.qty += h.quantity;
+        g.invested += h.total_invested;
+        g.value += h.current_value;
+        g.gain += h.gain;
+        g.accounts.push({ platform:h.platform, account_name:h.account_name, qty:h.quantity, invested:h.total_invested, gain:h.gain, value:h.current_value });
+      });
+      const holdings = Object.values(grouped).map(g => ({
+        ...g,
+        avg: g.qty > 0 ? g.invested / g.qty : 0,
+        gain_pct: g.invested > 0 ? (g.gain / g.invested) * 100 : 0,
+      }));
+
+      setPortfolioData({ summary: sumRes.data || {}, assetClasses, holdings, transactions: txnRes.data || [], cash: cashRes.data || [] });
+      setLoading(false);
+    }).catch(err=>{
+      setError('Could not connect to backend. Is it running on port 8000?');
+      setLoading(false);
+    });
+  }, [currency]);
+
+  const setRoute = (key) => {
+    const map = { home:'#/', us:'#/us', ind:'#/ind', mf:'#/mf', crypto:'#/crypto', lend:'#/lend', perf:'#/performance', conn:'#/connections', set:'#/settings' };
+    if(map[key]) location.hash = map[key];
+  };
+
+  const crumbs = (() => {
+    switch(state.route){
+      case 'home': return ['Orbit','Net Worth'];
+      case 'us': return ['Orbit','Asset classes','US Market'];
+      case 'ind': return ['Orbit','Asset classes','Indian Stocks'];
+      case 'mf': return ['Orbit','Asset classes','Mutual Funds'];
+      case 'crypto': return ['Orbit','Asset classes','Crypto'];
+      case 'lend': return ['Orbit','Asset classes','Lending'];
+      case 'perf': return ['Orbit','Analytics','Performance'];
+      case 'conn': return ['Orbit','Analytics','Connections'];
+      case 'set': return ['Orbit','Settings'];
+      default: return ['Orbit'];
+    }
+  })();
+
+  const shell = (
+    <div className="app">
+      <Sidebar route={state.route} setRoute={setRoute}/>
+      <main className="main">
+        <TopBar crumbs={crumbs} currency={currency} setCurrency={setCurrency}/>
+        {(loading || error) && (
+          <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:'60vh', color:'var(--fg-mute)', fontSize:14}}>
+            {error || 'Loading portfolio data…'}
+          </div>
+        )}
+        {!loading && !error && portfolioData && (
+          <>
+            {state.route==='home' && <NetWorthPage currency={currency} portfolioData={portfolioData}/>}
+            {state.cls && <AssetClassPage clsKey={state.cls} currency={currency} portfolioData={portfolioData}/>}
+            {state.route==='perf' && <PerformancePage currency={currency} portfolioData={portfolioData}/>}
+            {state.route==='conn' && <ConnectionsPage/>}
+            {state.route==='set' && <SettingsPage/>}
+          </>
+        )}
+      </main>
+    </div>
+  );
+  return shell;
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>
