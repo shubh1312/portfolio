@@ -34,7 +34,7 @@ services:
       - REACT_APP_API_URL=http://backend:8000/api
     volumes:
       - ./frontend/src:/app/src
-    command: npm run dev
+    command: npm run dev -- --host
     depends_on:
       - backend
     networks:
