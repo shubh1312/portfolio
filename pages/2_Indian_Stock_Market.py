@@ -7,20 +7,20 @@ from services.zerodha_service import generate_kite_session
 apply_custom_styles()
 
 # ── Zerodha OAuth redirect handler ───────────────────────────────────────────
+# Set Kite Connect redirect URL to: http://localhost:8501/indian-stocks?acc=1
 if "request_token" in st.query_params:
-    request_token = st.query_params["request_token"]
-    target_acc    = st.query_params.get("acc")
-    if target_acc:
-        with st.status(f"Authenticating Zerodha account {target_acc}…", expanded=True) as s:
-            token = generate_kite_session(target_acc, request_token)
-            if token:
-                s.update(label="Authenticated — you can now sync holdings.", state="complete", expanded=False)
-                st.query_params.clear()
+    _req_token  = st.query_params.get("request_token", "")
+    _target_acc = st.query_params.get("acc")
+    if _target_acc and _req_token:
+        with st.status(f"Authenticating Zerodha account {_target_acc}…", expanded=True) as _s:
+            _token = generate_kite_session(_target_acc, _req_token)
+            if _token:
+                _s.update(label=f"✅ Account {_target_acc} connected — sync from the sidebar.", state="complete", expanded=False)
             else:
-                s.update(label="Authentication failed.", state="error")
+                _s.update(label="❌ Authentication failed. Try logging in again.", state="error")
     else:
-        st.warning("Session token received but account could not be identified. "
-                   "Ensure your Kite redirect URL includes `?acc=1` (or 2, 3).")
+        st.warning("⚠️ Ensure your Kite redirect URL ends with `?acc=1` (or `?acc=2`, `?acc=3`).")
+    st.query_params.clear()
 
 active_ids = sidebar(category="Indian Stock Market")
 st.title("Indian Stocks")

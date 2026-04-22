@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import date, datetime, timedelta
 
-from utils.theme import apply_custom_styles, THEME
+from utils.theme import apply_custom_styles, THEME, RING_COLORS, _plotly_layout
 from utils.db import init_db
 from services.market_data import fetch_usd_inr_rate
 from services.performance_service import (
@@ -154,7 +154,7 @@ def render_asset_card(row, sym: str):
 
 
 # ── Page Header ────────────────────────────────────────────────────────────────
-st.markdown("# 🚀 Performance Tracker")
+st.markdown("# Performance")
 st.markdown("**Track capital invested vs current value with accurate Money-Weighted Returns (IRR)**")
 st.divider()
 
@@ -249,20 +249,39 @@ else:
     
     chart_col1, chart_col2 = st.columns(2)
     
-    # Chart 1: Allocation by capital
+    # Chart 1: Allocation by capital — thin ring donut
     with chart_col1:
-        alloc_data = perf_df[['asset_class', 'total_invested']].copy()
-        alloc_data.columns = ['Asset Class', 'Amount']
-        
-        fig_alloc = px.pie(
-            alloc_data,
-            names='Asset Class',
-            values='Amount',
-            title='Capital Allocation',
-            hole=0.3,
-            color_discrete_sequence=px.colors.qualitative.Pastel,
+        labels = perf_df['asset_class'].tolist()
+        amounts = perf_df['total_invested'].tolist()
+        n = len(labels)
+        colors = (RING_COLORS * (n // len(RING_COLORS) + 1))[:n]
+        total_inv = sum(amounts)
+
+        fig_alloc = go.Figure(go.Pie(
+            labels=labels,
+            values=amounts,
+            hole=0.86,
+            marker=dict(
+                colors=colors,
+                line=dict(color="#0d1117", width=2),
+            ),
+            textposition="outside",
+            textinfo="percent+label",
+            textfont=dict(size=11, color="#c9d1d9", family="Inter, sans-serif"),
+            hovertemplate="<b>%{label}</b><br>%{percent}<br>" + sym + "%{value:,.0f}<extra></extra>",
+        ))
+        fig_alloc.update_layout(
+            **_plotly_layout(
+                showlegend=False,
+                title=dict(text="Capital Allocation", font=dict(color="#8b949e", size=12), x=0),
+                margin=dict(t=40, b=70, l=70, r=70),
+                annotations=[dict(
+                    text=f"<b>{format_amount(total_inv, sym)}</b><br>invested",
+                    x=0.5, y=0.5, showarrow=False, align="center",
+                    font=dict(size=14, color="#e6edf3", family="JetBrains Mono, monospace"),
+                )],
+            )
         )
-        fig_alloc.update_traces(textposition='auto', textinfo='label+percent')
         st.plotly_chart(fig_alloc, use_container_width=True)
     
     # Chart 2: Returns by asset class
