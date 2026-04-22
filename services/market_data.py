@@ -11,15 +11,15 @@ from utils.db import execute_query, fetch_data
 _progress_lock = Lock()
 _session = requests.Session()  # Reuse connections for faster requests
 
-@st.cache_data(ttl=3600) # Cache exchange rate for 1 hour
+@st.cache_data(ttl=10800)  # Cache exchange rate for 3 hours
 def fetch_usd_inr_rate():
     try:
-        response = requests.get("https://api.exchangerate-api.com/v4/latest/USD")
+        response = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=4)
         response.raise_for_status()
         data = response.json()
-        return data.get("rates", {}).get("INR", 93.0) # Fallback to 83.0 if not found
+        return data.get("rates", {}).get("INR", 93.0)  # Fallback to 83.0 if not found
     except Exception as e:
-        st.warning("Could not fetch live USD/INR rate. Using fallback 83.0.")
+        st.warning("Could not fetch live USD/INR rate. Using fallback 93.0.")
         return 83.0
 
 def fetch_live_price(ticker, finnhub_key, av_key):
