@@ -17,7 +17,7 @@ def fetch_usd_inr_rate():
         response = requests.get("https://api.exchangerate-api.com/v4/latest/USD")
         response.raise_for_status()
         data = response.json()
-        return data.get("rates", {}).get("INR", 83.0) # Fallback to 83.0 if not found
+        return data.get("rates", {}).get("INR", 93.0) # Fallback to 83.0 if not found
     except Exception as e:
         st.warning("Could not fetch live USD/INR rate. Using fallback 83.0.")
         return 83.0
