@@ -108,7 +108,7 @@ def _base_css() -> str:
     [data-testid="stMetricDelta"] { font-family: 'JetBrains Mono', ui-monospace, monospace !important; font-size: 0.7rem !important; }
 
     /* Headings — shape */
-    h1 { font-family: 'Instrument Serif', Georgia, serif !important; font-size: 1.65rem !important; font-weight: 400 !important; letter-spacing: -0.02em !important; margin: 0 !important; }
+    h1 { font-family: 'Inter', system-ui, sans-serif !important; font-size: 1.65rem !important; font-weight: 600 !important; letter-spacing: -0.02em !important; margin: 0 !important; }
     h2 { font-size: 0.95rem !important; font-weight: 600 !important; letter-spacing: -0.01em !important; margin-top: 0.75rem !important; margin-bottom: 0.2rem !important; }
     h3 { font-size: 0.85rem !important; font-weight: 600 !important; }
 
