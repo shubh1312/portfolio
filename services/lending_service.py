@@ -23,22 +23,29 @@ def sync_lending_from_gsheet():
             st.error("Google Sheet is empty.")
             return False
 
-        # Ensure valid rows
-        df = df.dropna(subset=['name', 'amount'])
+        # Normalize columns
+        df.columns = [c.strip().lower() for c in df.columns]
         
-        # Clean currency columns
-        df['amount_clean'] = df['amount'].apply(clean_amount)
+        # Strictly look for 'name', 'invested', 'current'
+        if 'name' not in df.columns or 'invested' not in df.columns or 'current' not in df.columns:
+            st.error(f"Lending sheet missing required columns. Need: 'name', 'invested', 'current'. Found: {list(df.columns)}")
+            return False
+
+        # Clean data
+        df = df.dropna(subset=['name', 'current'])
+        df['current_clean'] = df['current'].apply(clean_amount)
+        df['invested_clean'] = df['invested'].apply(clean_amount)
         
         acc_name = "Lending"
 
         # Map to our schema
         mapped_df = pd.DataFrame({
-            'ticker': df['name'],           # Use borrower name as ticker
+            'ticker': df['name'],
             'name': df['name'],             
-            'quantity': 1,                  # Quantity is 1
-            'avg_price': df['amount_clean'],
-            'current_price': df['amount_clean'], # Current value = invested value
-            'total_invested': df['amount_clean']
+            'quantity': 1,
+            'avg_price': df['invested_clean'],
+            'current_price': df['current_clean'],
+            'total_invested': df['invested_clean']
         })
         
         acc_id = get_or_create_account("Google Sheets", acc_name, "GS_Lending", asset_category="Lending")

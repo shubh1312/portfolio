@@ -79,6 +79,8 @@ def render_asset_card(row, sym: str):
     total_invested = row["total_invested"]
     current_value = row["current_value"]
     cash_reserves = row.get("cash_reserves", 0)
+    realised_profit = row.get("realised_profit", 0)
+    unrealised_gain = row.get("unrealised_gain", 0)
     gain = row["gain"]
     abs_ret = row["abs_return_pct"]
     irr = row["irr_pct"]
@@ -91,41 +93,60 @@ def render_asset_card(row, sym: str):
     # Calculate effective return %
     irr_pct = irr if irr is not None else cagr
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         st.markdown(f"""
         <div class='perf-metric-card'>
         <div class='metric-label'>📈 Invested</div>
         <div class='metric-value'>{format_amount(total_invested, sym)}</div>
-        <div class='metric-sub'>{txn_count} transactions</div>
+        <div class='metric-sub'>{txn_count} txns</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        color = "#16A34A" if current_value >= total_invested else "#DC2626"
         st.markdown(f"""
         <div class='perf-metric-card'>
-        <div class='metric-label'>💰 Current Value</div>
-        <div class='metric-value' style='color:{color};'>{format_amount(current_value, sym)}</div>
-        <div class='metric-sub'>{"✓ Live Data" if has_live else "⚠ No Sync"}</div>
+        <div class='metric-label'>💰 Current</div>
+        <div class='metric-value'>{format_amount(current_value, sym)}</div>
+        <div class='metric-sub'>{"Live" if has_live else "Manual"}</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col3:
+        rp_color = "#A78BFA" if realised_profit > 0 else "#8b949e"
+        st.markdown(f"""
+        <div class='perf-metric-card'>
+        <div class='metric-label'>🏦 Realised</div>
+        <div class='metric-value' style='color:{rp_color};'>{format_amount(realised_profit, sym) if realised_profit != 0 else "—"}</div>
+        <div class='metric-sub'>Profit taken</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        up_color = "#16A34A" if unrealised_gain >= 0 else "#DC2626"
+        st.markdown(f"""
+        <div class='perf-metric-card'>
+        <div class='metric-label'>💎 Unrealised</div>
+        <div class='metric-value' style='color:{up_color};'>{format_amount(unrealised_gain, sym) if unrealised_gain != 0 else "—"}</div>
+        <div class='metric-sub'>Paper gain</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col5:
         color = "#16A34A" if gain >= 0 else "#DC2626"
         st.markdown(f"""
         <div class='perf-metric-card'>
-        <div class='metric-label'>✨ Absolute Gain</div>
+        <div class='metric-label'>✨ Total Gain</div>
         <div class='metric-value' style='color:{color};'>{format_amount(gain, sym)}</div>
         <div class='metric-sub'>{format_pct(abs_ret)}</div>
         </div>
         """, unsafe_allow_html=True)
     
-    with col4:
+    with col6:
         st.markdown(f"""
         <div class='perf-metric-card'>
-        <div class='metric-label'>🎯 IRR / CAGR</div>
+        <div class='metric-label'>🎯 IRR</div>
         <div class='metric-value'>{format_pct(irr_pct) if irr_pct else "—"}</div>
         <div class='metric-sub'><span class='irr-label'>{'MWR' if irr is not None else 'CAGR'}</span></div>
         </div>
@@ -202,11 +223,14 @@ else:
     
     t_cap = to_display(totals["total_capital"])
     t_val = to_display(totals["total_value"])
+    t_realised = to_display(totals["total_realised"])
     t_gain = to_display(totals["total_gain"])
     t_ret = totals["abs_return_pct"]
     t_irr = totals["portfolio_irr_pct"]
     t_cagr = totals["portfolio_cagr_pct"]
     t_yrs = totals["portfolio_years"]
+    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         st.metric("💰 Total Invested", format_amount(t_cap, sym))
@@ -215,12 +239,16 @@ else:
         st.metric("📈 Current Value", format_amount(t_val, sym))
     
     with col3:
-        st.metric("✨ Total Gain", format_amount(t_gain, sym), delta=format_pct(t_ret))
+        rp_label = format_amount(t_realised, sym) if t_realised > 0 else "—"
+        st.metric("🏦 Realised Profit", rp_label)
     
     with col4:
-        st.metric("🎯 Portfolio IRR", format_pct(t_irr) if t_irr else "—")
+        st.metric("✨ Unrealised Gain", format_amount(t_gain, sym), delta=format_pct(t_ret))
     
     with col5:
+        st.metric("🎯 Portfolio IRR", format_pct(t_irr) if t_irr else "—")
+    
+    with col6:
         st.metric("📊 Years Invested", f"{t_yrs:.1f}" if t_yrs else "—")
     
     if t_irr is not None:
@@ -359,8 +387,9 @@ with st.form("add_transaction_form"):
 st.divider()
 st.caption("""
 **📚 Understanding the Metrics:**
-- **IRR (Money-Weighted Return):** Accounts for when you invested - the most accurate measure
-- **Capital Invested:** Sum of all your positive investments (doesn't reset after profit booking)
+- **IRR (Money-Weighted Return):** Accounts for timing & size of every cash flow — the most accurate performance measure
+- **Capital Invested:** Total money you put in (gross, never reduced by withdrawals)
+- **Realised Profit:** Profits already withdrawn and in your bank — money you've booked
+- **Unrealised Gain:** Paper profit still sitting in the portfolio (Current Value − Invested)
 - **Current Value:** Live portfolio value from your synced accounts
-- **Absolute Gain:** Current Value - Total Invested
 """)

@@ -426,6 +426,7 @@ def build_performance_data_from_transactions(fx_rate: float = 83.0, target_curre
     - transactions (list of tuples, converted to target_currency)
     - total_invested (sum of positive amounts, converted to target_currency)
     - net_movements (includes withdrawals)
+    - realised_profit (sum of withdrawn amounts — profit already booked)
     - earliest_date
     - transaction_count
     - cash_reserves (converted to target_currency)
@@ -461,6 +462,7 @@ def build_performance_data_from_transactions(fx_rate: float = 83.0, target_curre
         # Calculate metrics from transactions only
         total_invested = sum(amt for _, amt in txns if amt > 0)
         net_movements = sum(amt for _, amt in txns)
+        realised_profit = sum(abs(amt) for _, amt in txns if amt < 0)  # Profit already booked/withdrawn
         earliest_date = min(d for d, _ in txns)
         txn_count = len(txns)
         
@@ -470,30 +472,43 @@ def build_performance_data_from_transactions(fx_rate: float = 83.0, target_curre
         cash_reserves = _convert_currency(cash_amount, cash_currency, target_currency, fx_rate)
         
         has_live_data = current_value is not None
-        display_value = current_value if has_live_data else net_movements
+        
+        # If no live data found in DB, fallback to total_invested (gross) 
+        # to ensure unrealised gain starts at 0 for manual assets.
+        display_value = current_value if has_live_data else total_invested
         
         # Convert display_value to target currency if needed (it's from DB in INR)
         if target_currency != "INR" and display_value > 0:
             display_value = _convert_currency(display_value, "INR", target_currency, fx_rate)
         
-        # Add cash reserves to current value (but NOT to total_invested)
-        total_with_cash = display_value + cash_reserves
+        # Current Value in portfolio (Live holdings + Cash)
+        # Calculate returns:
+        # 1. Realised Profit = Money already taken out (Sum of negative transactions)
+        # 2. Unrealised Gain = (Current Value of holdings) - (Life-time Gross Investment)
+        # 3. Total Gain = Realised + Unrealised
         
-        # Calculate returns from total (invested + current returns + cash)
-        gain = (total_with_cash - total_invested) if total_invested > 0 else cash_reserves
-        abs_ret = _abs_return(total_with_cash, total_invested) if total_invested > 0 else None
+        # We use display_value (holdings only) for Unrealised Paper Gain.
+        unrealised_gain = (display_value - total_invested) if total_invested > 0 else 0
+        
+        # total_current_portfolio includes cash reserves for IRR and Portfolio Value
+        total_current_portfolio = display_value + cash_reserves
+        
+        # Total return includes what's in the market + cash + what was already taken out
+        total_return = total_current_portfolio + realised_profit
+        gain = (total_return - total_invested) if total_invested > 0 else cash_reserves
+        abs_ret = _abs_return(total_return, total_invested) if total_invested > 0 else None
         
         years = _years_since(earliest_date)
         
-        # Calculate IRR (Money-Weighted Return) using total_with_cash
+        # Calculate IRR (Money-Weighted Return) using total_current_portfolio
         irr = None
         if total_invested > 0:
-            irr = _calculate_irr(txns, total_with_cash)
+            irr = _calculate_irr(txns, total_current_portfolio)
         
         # Calculate segmented CAGR (simple CAGR from earliest to today)
         seg_cagr = None
         if total_invested > 0:
-            seg_cagr = _calculate_segmented_cagr(txns, total_with_cash)
+            seg_cagr = _calculate_segmented_cagr(txns, total_current_portfolio)
         
         rows.append({
             "asset_class": asset_class,
@@ -503,8 +518,10 @@ def build_performance_data_from_transactions(fx_rate: float = 83.0, target_curre
             "earliest_date": earliest_date,
             "transaction_count": txn_count,
             "cash_reserves": cash_reserves,
-            "current_value": total_with_cash,  # Includes cash
-            "gain": gain,
+            "current_value": total_current_portfolio,  # What is currently in the market/cash
+            "realised_profit": realised_profit,        # What was already taken out
+            "unrealised_gain": unrealised_gain,        # Paper profit (Current - Invested)
+            "gain": gain,                              # Total profit (realised + unrealised)
             "abs_return_pct": abs_ret,
             "years": years,
             "irr_pct": (irr * 100) if irr is not None else None,
@@ -526,8 +543,12 @@ def compute_portfolio_totals_from_transactions(df: pd.DataFrame) -> dict:
     """
     total_capital = df["total_invested"].sum()
     total_value = df["current_value"].sum()
-    total_gain = total_value - total_capital
-    total_abs_ret = _abs_return(total_value, total_capital)
+    total_realised = df["realised_profit"].sum()
+    total_unrealised = df["unrealised_gain"].sum()
+    
+    # Total Gain = (Current Value + Realised Profit) - Total Capital
+    total_gain = (total_value + total_realised) - total_capital
+    total_abs_ret = _abs_return(total_value + total_realised, total_capital)
     
     # Portfolio IRR (Money-Weighted)
     all_transactions = []
@@ -549,6 +570,7 @@ def compute_portfolio_totals_from_transactions(df: pd.DataFrame) -> dict:
     return {
         "total_capital": total_capital,
         "total_value": total_value,
+        "total_realised": total_realised,
         "total_gain": total_gain,
         "abs_return_pct": total_abs_ret,
         "portfolio_irr_pct": (portfolio_irr * 100) if portfolio_irr is not None else None,
